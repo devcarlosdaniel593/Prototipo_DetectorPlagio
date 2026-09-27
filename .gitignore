@@ -1,0 +1,58 @@
+# Node / NestJS
+node_modules/
+dist/
+build/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Environment variables
+.env
+.env.*
+.env.local
+
+# OS & IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.sublime-workspace
+
+# Python y Modelos de IA (Vital para tu tesis)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+.env/
+ia_service/__pycache__/
+ia_service/venv/
+ia_service/.venv/
+ia_service/sentence_transformers/
+
+# Database & Prisma
+/generated/prisma
+
+# Tests & Coverage
+coverage/
+.nyc_output
+
+# --- ADICIONES PARA TESIS ---
+
+# PDFs y archivos subidos (Para no llenar el repo de pruebas)
+uploads/
+backend/uploads/
+*.pdf
+
+# Caché de Transformers (MUY IMPORTANTE)
+root/.cache/torch/
+ia_service/models/
+.cache/
+
+# Archivos de SQLite (Si usas local en Prisma)
+*.db
+*.db-journal
