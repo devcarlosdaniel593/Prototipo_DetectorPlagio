@@ -58,3 +58,6 @@ ia_service/models/
 *.db-journal
 # Salidas del asistente
 Claude outputs/
+
+# Copias de seguridad de scripts de mantenimiento (contienen texto de documentos)
+backend/backups/

@@ -28,11 +28,16 @@ model Document {
   title     String
   filePath  String
   content   String? 
+  /// Huella SHA-256 del texto extraído (espacios normalizados).
+  /// Permite detectar el mismo PDF subido más de una vez. null = documento antiguo sin calcular.
+  contentHash String?
   userId    Int
   createdAt DateTime @default(now())
 
   user     User              @relation(fields: [userId], references: [id])
   analysis DocumentAnalysis?
+
+  @@index([contentHash])
 }
 
 /// Métricas de evaluación guardadas al analizar cada documento (no se recalculan en el reporte).
