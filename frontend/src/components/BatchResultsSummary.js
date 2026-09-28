@@ -1,5 +1,6 @@
 import React from 'react';
 import { getSimilarityFromBatchEntry } from '../utils/batchAnalysis';
+import { formatPercent } from '../utils/format';
 
 function levelClass(value) {
   if (value >= 80) return 'batch-sim batch-sim--high';
@@ -66,7 +67,7 @@ export default function BatchResultsSummary({
                   <td className="batch-summary__cell-file">{entry.fileName}</td>
                   <td>
                     {entry.status === 'ok' && sim != null ? (
-                      <span className={levelClass(sim)}>{sim.toFixed(2)}%</span>
+                      <span className={levelClass(sim)}>{formatPercent(sim)}</span>
                     ) : (
                       <span className="muted">—</span>
                     )}

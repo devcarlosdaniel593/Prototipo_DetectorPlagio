@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getEvaluationReport, setReferenceLabel } from '../services/api';
+import { formatPercent } from '../utils/format';
 
 const CHART_COLORS = {
   precision: '#3b82f6',
@@ -98,7 +99,7 @@ function MetricsComparisonChart({ precision, recall, f1Score }) {
                 fontWeight="700"
                 fill="#0f172a"
               >
-                {m.value === null ? '—' : `${m.value}%`}
+                {formatPercent(m.value)}
               </text>
               <text
                 x={x + barW / 2}
@@ -199,7 +200,7 @@ function KpiCard({ label, value, description, accent, highlight }) {
         <span className="dash-kpi__accent" style={{ background: accent }} />
       </div>
       <div className="dash-kpi__value" style={{ color: getMetricColor(value) }}>
-        {value === null || value === undefined ? '—' : `${value}%`}
+        {formatPercent(value)}
       </div>
       <div className="dash-kpi__ring" aria-hidden>
         <svg viewBox="0 0 36 36" className="dash-kpi__ring-svg">
@@ -394,7 +395,7 @@ export default function EvaluationReport({ refreshKey = 0 }) {
               </div>
               <div className="dash-kpi-stat">
                 <span className="dash-kpi-stat__label">Exactitud</span>
-                <strong>{pr?.accuracy === null || pr?.accuracy === undefined ? '—' : `${pr.accuracy}%`}</strong>
+                <strong>{formatPercent(pr?.accuracy)}</strong>
               </div>
             </div>
           </section>
@@ -429,7 +430,7 @@ export default function EvaluationReport({ refreshKey = 0 }) {
                   {tableStats && (
                     <>
                       {' '}
-                      Promedio de similitud: <strong>{tableStats.avgSim.toFixed(2)}%</strong>
+                      Promedio de similitud: <strong>{formatPercent(tableStats.avgSim)}</strong>
                       {' · '}
                       Clasificados como similares:{' '}
                       <strong>

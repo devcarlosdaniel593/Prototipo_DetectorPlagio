@@ -5,6 +5,7 @@ import {
   parseTeacherGradeInput,
   similarityToPrototypeGrade,
 } from '../utils/gradeSuggestion';
+import { formatPercent } from '../utils/format';
 
 const BATCH_DISCLAIMER =
   'Las calificaciones sugeridas corresponden únicamente a una recomendación generada por el sistema basada en el porcentaje de similitud y la calificación ingresada por el docente. La decisión final de evaluación corresponde exclusivamente al docente.';
@@ -125,7 +126,7 @@ export default function BatchGradeEvaluation({ items }) {
                 </td>
                 <td>
                   {row.similarity != null ? (
-                    <span className="batch-grade__sim">{row.similarity.toFixed(2)}%</span>
+                    <span className="batch-grade__sim">{formatPercent(row.similarity)}</span>
                   ) : (
                     <span className="muted">—</span>
                   )}
@@ -206,7 +207,7 @@ export default function BatchGradeEvaluation({ items }) {
           </div>
           <div className="batch-grade__summary-item">
             <span>Promedio similitud</span>
-            <strong>{summary.avgSimilarity.toFixed(2)}%</strong>
+            <strong>{formatPercent(summary.avgSimilarity)}</strong>
           </div>
           <div className="batch-grade__summary-item">
             <span>Promedio calificación sugerida</span>

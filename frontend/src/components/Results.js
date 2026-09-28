@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import HighlightText from './HighlightText';
 import GradeSuggestion from './GradeSuggestion';
 import { buildSourceColorMap } from '../utils/sourcePalette';
+import { formatPercent } from '../utils/format';
 
 export default function Results({ result }) {
   const [activeTab, setActiveTab] = useState('originality');
@@ -125,7 +126,7 @@ export default function Results({ result }) {
         </div>
         <div className="score-box">
           <span className="score-label">SIMILITUD</span>
-          <span className="score-value">{total.toFixed(2)}%</span>
+          <span className="score-value">{formatPercent(total)}</span>
           <span className={`score-chip ${getLevelClass(total)}`}>
             {getLevelLabel(total)}
           </span>
@@ -162,7 +163,7 @@ export default function Results({ result }) {
               <div className="details-grid">
                 <div className="detail-item">
                   <span className="detail-label">Similitud global</span>
-                  <span className="detail-value">{total.toFixed(2)}%</span>
+                  <span className="detail-value">{formatPercent(total)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Servicio IA semántica</span>
@@ -240,7 +241,7 @@ export default function Results({ result }) {
                             )}
                           </div>
                           <div className="matches-head-score">
-                            {match.similarity.toFixed(2)}% similitud
+                            {formatPercent(match.similarity)} similitud
                           </div>
                         </div>
                       </div>
@@ -438,7 +439,7 @@ export default function Results({ result }) {
                       </div>
                     </div>
                   </div>
-                  <span className="match-value">{doc.similarity.toFixed(2)}%</span>
+                  <span className="match-value">{formatPercent(doc.similarity)}</span>
                 </div>
               ))}
             </div>

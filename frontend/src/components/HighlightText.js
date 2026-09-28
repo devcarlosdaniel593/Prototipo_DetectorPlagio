@@ -3,6 +3,7 @@ import {
   buildSourceColorMap,
   colorForSourceId,
 } from '../utils/sourcePalette';
+import { formatPercent } from '../utils/format';
 
 /**
  * Genera intervalos no solapados priorizando mayor similitud, luego recorre el texto en orden.
@@ -75,7 +76,7 @@ export default function HighlightText({ text, matches = [], summary = [] }) {
             borderRadius: 4,
             padding: '1px 0',
           }}
-          title={`${r.title || 'Fuente'} · ${Number(r.similarity).toFixed(1)}%`}
+          title={`${r.title || 'Fuente'} · ${formatPercent(r.similarity, 1)}`}
         >
           {text.slice(r.start, r.end)}
         </mark>,

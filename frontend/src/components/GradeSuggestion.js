@@ -4,6 +4,7 @@ import {
   parseTeacherGradeInput,
   similarityToPrototypeGrade,
 } from '../utils/gradeSuggestion';
+import { formatPercent } from '../utils/format';
 
 export default function GradeSuggestion({ similarityPercent }) {
   const [teacherInput, setTeacherInput] = useState('');
@@ -55,7 +56,7 @@ export default function GradeSuggestion({ similarityPercent }) {
         <div className="grade-suggestion__metric">
           <span className="grade-suggestion__metric-label">Similitud detectada</span>
           <span className="grade-suggestion__metric-value">
-            {Number(similarityPercent).toFixed(2)}%
+            {formatPercent(similarityPercent)}
           </span>
         </div>
         <div className="grade-suggestion__metric grade-suggestion__metric--highlight">
