@@ -12,6 +12,7 @@ import { UploadDocumentDto } from './upload-document.dto';
 import type { AnalysisResponse } from '../analysis/analysis.service';
 import { DocumentUploadPipeline } from './document-upload.pipeline';
 import { parsePersistToRepository } from './persist-options.util';
+import { fixUploadFileNames } from './file-name.util';
 import type { BatchAnalysisResult } from './batch-analysis.types';
 
 export type { BatchAnalysisResult } from './batch-analysis.types';
@@ -34,6 +35,7 @@ export class DocumentsController {
     if (!body?.title?.trim()) {
       throw new BadRequestException('El titulo es obligatorio');
     }
+    fixUploadFileNames(file ? [file] : []);
 
     return this.uploadPipeline.uploadAnalyzeAndMaybePersist(
       file,
@@ -62,6 +64,7 @@ export class DocumentsController {
     if (!files || files.length === 0) {
       throw new BadRequestException('Debes enviar al menos un archivo PDF');
     }
+    fixUploadFileNames(files);
 
     let titles: string[] = [];
     try {
