@@ -1,0 +1,10 @@
+# Microservicio semántico — versión LIGERA para Render gratis (512 MB)
+# Sin PyTorch: usa el modelo ONNX cuantizado (SEMANTIC_BACKEND=onnx).
+# Las versiones se fijarán con las que se prueben en local (pip freeze).
+Flask>=3.1
+gunicorn>=22
+nltk>=3.9
+numpy>=2.0
+onnxruntime>=1.18
+tokenizers>=0.19
+huggingface_hub>=0.23

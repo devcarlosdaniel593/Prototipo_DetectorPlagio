@@ -12,7 +12,9 @@ GET /health
 
 Variables de entorno (todas opcionales):
     PORT                    puerto (por defecto 5000)
-    SEMANTIC_MODEL          modelo de sentence-transformers
+    SEMANTIC_BACKEND        torch (por defecto) | onnx  (ver encoders.py)
+    SEMANTIC_MODEL          modelo de sentence-transformers (backend torch)
+    ONNX_MODEL_FILE         archivo ONNX del modelo (backend onnx)
     MAX_FRASES_BASE         máximo de oraciones por texto base (por defecto 2000)
     BASE_CACHE_MAX_ITEMS    textos base con embeddings en memoria (por defecto 48)
 """
@@ -24,16 +26,15 @@ import threading
 from collections import OrderedDict
 
 import nltk
-import torch
 from flask import Flask, jsonify, request
-from sentence_transformers import SentenceTransformer, util
+
+from encoders import cosine_matrix, create_encoder
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [ia_service] %(levelname)s %(message)s"
 )
 log = logging.getLogger("ia_service")
 
-MODEL_NAME = os.getenv("SEMANTIC_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 MAX_FRASES_BASE = int(os.getenv("MAX_FRASES_BASE", "2000"))
 BASE_CACHE_MAX_ITEMS = int(os.getenv("BASE_CACHE_MAX_ITEMS", "48"))
 SENT_LANGUAGE = "spanish"
@@ -67,9 +68,8 @@ app = Flask(__name__)
 # Protege al servicio de cuerpos enormes (un documento de tesis ocupa < 1 MB).
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
-log.info("Cargando modelo %s ...", MODEL_NAME)
 try:
-    model = SentenceTransformer(MODEL_NAME)
+    encoder = create_encoder()
 except Exception as exc:
     log.error("Error cargando el modelo: %s", exc)
     sys.exit(1)
@@ -118,7 +118,7 @@ def _get_frases_y_embedding_base(textos_base):
     if not frases:
         return None, None
 
-    emb_base = model.encode(frases, convert_to_tensor=True)
+    emb_base = encoder.encode(frases)
     with _cache_lock:
         _base_emb_cache[key] = (frases, emb_base)
         while len(_base_emb_cache) > BASE_CACHE_MAX_ITEMS:
@@ -129,7 +129,7 @@ def _get_frases_y_embedding_base(textos_base):
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "model": MODEL_NAME})
+    return jsonify({"status": "ok", "backend": encoder.name})
 
 
 @app.route("/compare", methods=["POST"])
@@ -159,18 +159,18 @@ def compare():
                 }
             )
 
-        emb_nuevas = model.encode(frases_nuevas, convert_to_tensor=True)
-        cos_sim_matrix = util.cos_sim(emb_nuevas, emb_base)
+        emb_nuevas = encoder.encode(frases_nuevas)
+        cos_sim_matrix = cosine_matrix(emb_nuevas, emb_base)
 
         analisis_detallado = []
         for i, frase in enumerate(frases_nuevas):
-            max_val, max_idx = torch.max(cos_sim_matrix[i], dim=0)
-            porcentaje = float(max_val.item()) * 100
+            max_idx = int(cos_sim_matrix[i].argmax())
+            porcentaje = float(cos_sim_matrix[i][max_idx]) * 100
             analisis_detallado.append(
                 {
                     "texto": frase,
                     "similitud": round(porcentaje, 2),
-                    "referencia": todas_frases_base[max_idx.item()]
+                    "referencia": todas_frases_base[max_idx]
                     if porcentaje > 30
                     else "",
                 }
