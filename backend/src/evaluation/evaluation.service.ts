@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StylometryService } from '../analysis/stylometry.service';
-import { DocumentAnalysisService } from './document-analysis.service';
+import {
+  DocumentAnalysisService,
+  type ReferenceLabel,
+} from './document-analysis.service';
 
 // ─────────────────────────────────────────────
 // TIPOS PÚBLICOS
@@ -19,17 +22,28 @@ export type DocumentMetric = {
   detectedAsSimilar: boolean;
   riskLevel: 'alto' | 'medio' | 'bajo';
   systemClassification: 'similar' | 'no_similar';
+  referenceLabel: ReferenceLabel | null;
   analyzedAt: string;
 };
 
+/**
+ * Métricas de clasificación calculadas SOLO sobre documentos con etiqueta
+ * de referencia. Si no hay documentos etiquetados, precision/recall/f1/accuracy
+ * son null (no se inventan valores).
+ */
 export type PrecisionRecallMetrics = {
   similarityThreshold: number;
-  detectedAsSimilar: number;
   totalDocuments: number;
-  highSimilarityPairs: number;
-  precision: number;
-  recall: number;
-  f1Score: number;
+  detectedAsSimilar: number;
+  labeledDocuments: number;
+  truePositives: number;
+  falsePositives: number;
+  trueNegatives: number;
+  falseNegatives: number;
+  precision: number | null;
+  recall: number | null;
+  f1Score: number | null;
+  accuracy: number | null;
 };
 
 export type StylometryMetrics = {
@@ -62,21 +76,6 @@ export type EvaluationReport = {
   summary: string;
 };
 
-export type EvaluationProgress = {
-  status: 'idle' | 'running' | 'completed' | 'error';
-  startedAt: string | null;
-  finishedAt: string | null;
-  totalDocuments: number;
-  processedDocuments: number;
-  currentDocumentId: number | null;
-  currentDocumentTitle: string | null;
-  lastCompletedTitle: string | null;
-  elapsedMs: number;
-  message: string;
-  error: string | null;
-  recentLogs: string[];
-};
-
 // ─────────────────────────────────────────────
 // SERVICIO
 // ─────────────────────────────────────────────
@@ -94,26 +93,8 @@ export class EvaluationService {
     private readonly documentAnalysisService: DocumentAnalysisService,
   ) {}
 
-  getProgress(): EvaluationProgress {
-    return {
-      status: 'idle',
-      startedAt: null,
-      finishedAt: null,
-      totalDocuments: 0,
-      processedDocuments: 0,
-      currentDocumentId: null,
-      currentDocumentTitle: null,
-      lastCompletedTitle: null,
-      elapsedMs: 0,
-      message:
-        'El reporte usa métricas guardadas al subir documentos. No hay proceso en curso.',
-      error: null,
-      recentLogs: [],
-    };
-  }
-
   /**
-   * Arma el reporte leyendo métricas ya guardadas (instantáneo).
+   * Arma el reporte leyendo métricas ya guardadas.
    * Las métricas se actualizan cada vez que se sube/analiza un PDF.
    */
   async generateReport(): Promise<EvaluationReport> {
@@ -130,16 +111,16 @@ export class EvaluationService {
       totalDocumentsInDB - documentsWithMetrics,
     );
 
-    const lastAnalysisAt =
-      snapshots.length > 0
-        ? snapshots.reduce((latest, row) =>
-            row.analyzedAt > latest ? row.analyzedAt : latest,
-          snapshots[0].analyzedAt).toISOString()
-        : null;
-
     if (documentsWithMetrics === 0) {
       return this.emptyReport(totalDocumentsInDB, documentsPendingMetrics);
     }
+
+    const lastAnalysisAt = snapshots
+      .reduce(
+        (latest, row) => (row.analyzedAt > latest ? row.analyzedAt : latest),
+        snapshots[0].analyzedAt,
+      )
+      .toISOString();
 
     const perDocument: DocumentMetric[] = snapshots.map((row) => ({
       documentId: row.documentId,
@@ -152,20 +133,16 @@ export class EvaluationService {
       semanticServiceStatus: row.semanticServiceStatus as 'ok' | 'degraded',
       detectedAsSimilar: row.detectedAsSimilar,
       riskLevel: row.riskLevel as DocumentMetric['riskLevel'],
-      systemClassification: row.systemClassification as DocumentMetric['systemClassification'],
+      systemClassification:
+        row.systemClassification as DocumentMetric['systemClassification'],
+      referenceLabel: this.normalizeLabel(row.referenceLabel),
       analyzedAt: row.analyzedAt.toISOString(),
-    }));
-
-    const documentsForStylometry = snapshots.map((row) => ({
-      id: row.document.id,
-      title: row.document.title,
-      content: row.document.content,
     }));
 
     const precisionRecall = this.calculatePrecisionRecall(perDocument);
     const stylometry = this.calculateStylometryMetrics(
       perDocument,
-      documentsForStylometry,
+      snapshots.map((row) => row.document.content),
     );
     const performance = this.calculatePerformanceMetrics(perDocument);
     const summary = this.buildSummary(
@@ -176,7 +153,7 @@ export class EvaluationService {
     );
 
     this.logger.log(
-      `Reporte listo — ${documentsWithMetrics} documento(s) con métricas guardadas.`,
+      `Reporte listo — ${documentsWithMetrics} documento(s), ${precisionRecall.labeledDocuments} etiquetado(s).`,
     );
 
     return {
@@ -194,36 +171,62 @@ export class EvaluationService {
     };
   }
 
+  /**
+   * Matriz de confusión sobre los documentos etiquetados:
+   *   positivo real      = etiqueta "similar"
+   *   positivo predicho  = el sistema lo clasificó como similar (≥ umbral)
+   */
   private calculatePrecisionRecall(
     metrics: DocumentMetric[],
   ): PrecisionRecallMetrics {
-    const totalDocuments = metrics.length;
-    const detectedAsSimilar = metrics.filter((m) => m.detectedAsSimilar).length;
-    const highSimilarityPairs = detectedAsSimilar;
+    const labeled = metrics.filter((m) => m.referenceLabel !== null);
 
-    const precision =
-      detectedAsSimilar > 0 ? (highSimilarityPairs / detectedAsSimilar) * 100 : 0;
-    const recall =
-      totalDocuments > 0 ? (highSimilarityPairs / totalDocuments) * 100 : 0;
+    let tp = 0;
+    let fp = 0;
+    let tn = 0;
+    let fn = 0;
+    for (const m of labeled) {
+      const actualPositive = m.referenceLabel === 'similar';
+      const predictedPositive = m.detectedAsSimilar;
+      if (predictedPositive && actualPositive) tp++;
+      else if (predictedPositive && !actualPositive) fp++;
+      else if (!predictedPositive && actualPositive) fn++;
+      else tn++;
+    }
+
+    const precision = tp + fp > 0 ? (tp / (tp + fp)) * 100 : null;
+    const recall = tp + fn > 0 ? (tp / (tp + fn)) * 100 : null;
     const f1Score =
-      precision + recall > 0
+      precision !== null && recall !== null && precision + recall > 0
         ? (2 * precision * recall) / (precision + recall)
-        : 0;
+        : null;
+    const accuracy =
+      labeled.length > 0 ? ((tp + tn) / labeled.length) * 100 : null;
 
     return {
       similarityThreshold: this.SIMILARITY_THRESHOLD,
-      detectedAsSimilar,
-      totalDocuments,
-      highSimilarityPairs,
-      precision: this.round(precision),
-      recall: this.round(recall),
-      f1Score: this.round(f1Score),
+      totalDocuments: metrics.length,
+      detectedAsSimilar: metrics.filter((m) => m.detectedAsSimilar).length,
+      labeledDocuments: labeled.length,
+      truePositives: tp,
+      falsePositives: fp,
+      trueNegatives: tn,
+      falseNegatives: fn,
+      precision: this.roundOrNull(precision),
+      recall: this.roundOrNull(recall),
+      f1Score: this.roundOrNull(f1Score),
+      accuracy: this.roundOrNull(accuracy),
     };
   }
 
+  /**
+   * Métricas estilométricas del corpus.
+   * Optimización: el perfil de cada documento se calcula UNA sola vez
+   * (antes se recalculaba dentro del doble bucle).
+   */
   private calculateStylometryMetrics(
     metrics: DocumentMetric[],
-    documents: { id: number; title: string; content: string | null }[],
+    contents: (string | null)[],
   ): StylometryMetrics {
     const totalAnalyzed = metrics.length;
     const withAnomalies = metrics.filter((m) => m.anomaliesDetected > 0).length;
@@ -234,23 +237,18 @@ export class EvaluationService {
         ? metrics.reduce((acc, m) => acc + m.consistencyScore, 0) / totalAnalyzed
         : 0;
 
-    let highAuthorshipMatches = 0;
-    const validDocs = documents.filter(
-      (d) => d.content && d.content.trim().length > 100,
-    );
+    const profiles = contents
+      .filter((c): c is string => !!c && c.trim().length > 100)
+      .map((c) => this.stylometryService.extractProfile(c));
 
-    for (let i = 0; i < validDocs.length; i++) {
-      for (let j = i + 1; j < validDocs.length; j++) {
-        const profileA = this.stylometryService.extractProfile(
-          validDocs[i].content!,
+    let highAuthorshipMatches = 0;
+    for (let i = 0; i < profiles.length; i++) {
+      for (let j = i + 1; j < profiles.length; j++) {
+        const score = this.stylometryService.compareProfiles(
+          profiles[i],
+          profiles[j],
         );
-        const profileB = this.stylometryService.extractProfile(
-          validDocs[j].content!,
-        );
-        const score = this.stylometryService.compareProfiles(profileA, profileB);
-        if (score >= this.AUTHORSHIP_THRESHOLD) {
-          highAuthorshipMatches++;
-        }
+        if (score >= this.AUTHORSHIP_THRESHOLD) highAuthorshipMatches++;
       }
     }
 
@@ -298,14 +296,20 @@ export class EvaluationService {
   ): string {
     const pendingNote =
       pendingMetrics > 0
-        ? ` Hay ${pendingMetrics} documento(s) en la BD sin métricas guardadas; analízalos subiéndolos desde el analizador.`
+        ? ` Hay ${pendingMetrics} documento(s) en la BD sin métricas guardadas.`
         : '';
+
+    const classification =
+      pr.labeledDocuments > 0
+        ? `Sobre ${pr.labeledDocuments} documento(s) etiquetado(s): precisión ${this.fmt(pr.precision)}, ` +
+          `recall ${this.fmt(pr.recall)}, F1 ${this.fmt(pr.f1Score)}, exactitud ${this.fmt(pr.accuracy)} ` +
+          `(VP ${pr.truePositives}, FP ${pr.falsePositives}, VN ${pr.trueNegatives}, FN ${pr.falseNegatives}; umbral ${pr.similarityThreshold}%).`
+        : 'Precisión, recall y F1 no se calculan porque no hay documentos con etiqueta de referencia.';
 
     return (
       `Reporte basado en ${perf.totalDocumentsProcessed} análisis guardado(s). ` +
-      `Precisión ${pr.precision}%, recall ${pr.recall}%, F1 ${pr.f1Score}% ` +
-      `(umbral ${pr.similarityThreshold}%). ` +
-      `Tiempo promedio de análisis al subir: ${perf.avgProcessingTimeMs}ms. ` +
+      `${classification} ` +
+      `Tiempo promedio de análisis: ${perf.avgProcessingTimeMs} ms. ` +
       `Estilometría: ${sty.withAnomalies}/${sty.totalAnalyzed} con anomalías (${sty.anomalyDetectionRate}%).` +
       pendingNote
     );
@@ -330,12 +334,17 @@ export class EvaluationService {
       dataSource: 'stored',
       precisionRecall: {
         similarityThreshold: this.SIMILARITY_THRESHOLD,
-        detectedAsSimilar: 0,
         totalDocuments: 0,
-        highSimilarityPairs: 0,
-        precision: 0,
-        recall: 0,
-        f1Score: 0,
+        detectedAsSimilar: 0,
+        labeledDocuments: 0,
+        truePositives: 0,
+        falsePositives: 0,
+        trueNegatives: 0,
+        falseNegatives: 0,
+        precision: null,
+        recall: null,
+        f1Score: null,
+        accuracy: null,
       },
       stylometry: {
         totalAnalyzed: 0,
@@ -354,6 +363,18 @@ export class EvaluationService {
       perDocument: [],
       summary,
     };
+  }
+
+  private normalizeLabel(value: string | null): ReferenceLabel | null {
+    return value === 'similar' || value === 'original' ? value : null;
+  }
+
+  private fmt(value: number | null): string {
+    return value === null ? '—' : `${value}%`;
+  }
+
+  private roundOrNull(value: number | null): number | null {
+    return value === null ? null : this.round(value);
   }
 
   private round(value: number): number {

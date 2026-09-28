@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { getEvaluationReport } from '../services/api';
+import { getEvaluationReport, setReferenceLabel } from '../services/api';
 
 const CHART_COLORS = {
   precision: '#3b82f6',
@@ -8,6 +8,7 @@ const CHART_COLORS = {
 };
 
 function getMetricColor(value) {
+  if (value === null || value === undefined) return '#94a3b8';
   if (value >= 80) return '#22c55e';
   if (value >= 60) return '#f59e0b';
   return '#ef4444';
@@ -19,8 +20,20 @@ function getRiskMeta(level) {
   return { label: 'Bajo', className: 'dash-risk dash-risk--low' };
 }
 
-/** Gráfico de barras: Precisión, Recall y F1 */
+/** Gráfico de barras: Precisión, Recall y F1 (solo con documentos etiquetados) */
 function MetricsComparisonChart({ precision, recall, f1Score }) {
+  if (precision === null && recall === null && f1Score === null) {
+    return (
+      <div className="dash-chart-card">
+        <h3 className="dash-chart-title">Comparación de métricas</h3>
+        <p className="dash-chart-empty">
+          Aún no hay documentos con etiqueta de referencia. Asigna la etiqueta
+          (Similar / Original) en la tabla experimental para calcular las métricas.
+        </p>
+      </div>
+    );
+  }
+
   const metrics = [
     { key: 'precision', label: 'Precisión', value: precision, color: CHART_COLORS.precision },
     { key: 'recall', label: 'Recall', value: recall, color: CHART_COLORS.recall },
@@ -62,7 +75,8 @@ function MetricsComparisonChart({ precision, recall, f1Score }) {
         })}
 
         {metrics.map((m, i) => {
-          const barH = (m.value / maxVal) * innerH;
+          const value = m.value ?? 0;
+          const barH = (value / maxVal) * innerH;
           const x = padL + i * (barW + barGap);
           const y = padT + innerH - barH;
           return (
@@ -84,7 +98,7 @@ function MetricsComparisonChart({ precision, recall, f1Score }) {
                 fontWeight="700"
                 fill="#0f172a"
               >
-                {m.value}%
+                {m.value === null ? '—' : `${m.value}%`}
               </text>
               <text
                 x={x + barW / 2}
@@ -185,7 +199,7 @@ function KpiCard({ label, value, description, accent, highlight }) {
         <span className="dash-kpi__accent" style={{ background: accent }} />
       </div>
       <div className="dash-kpi__value" style={{ color: getMetricColor(value) }}>
-        {value}%
+        {value === null || value === undefined ? '—' : `${value}%`}
       </div>
       <div className="dash-kpi__ring" aria-hidden>
         <svg viewBox="0 0 36 36" className="dash-kpi__ring-svg">
@@ -200,7 +214,7 @@ function KpiCard({ label, value, description, accent, highlight }) {
             fill="none"
             stroke={accent}
             strokeWidth="3"
-            strokeDasharray={`${value}, 100`}
+            strokeDasharray={`${value ?? 0}, 100`}
             strokeLinecap="round"
           />
         </svg>
@@ -219,6 +233,7 @@ export default function EvaluationReport({ refreshKey = 0 }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [savingLabelId, setSavingLabelId] = useState(null);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -236,7 +251,7 @@ export default function EvaluationReport({ refreshKey = 0 }) {
       console.error('[EvalReport] Error:', detail);
       setError(
         !err?.response
-          ? 'No hay conexión con el backend (http://localhost:3000).'
+          ? 'No hay conexión con el backend.'
           : `No se pudo cargar el dashboard: ${detail}`,
       );
     } finally {
@@ -247,6 +262,25 @@ export default function EvaluationReport({ refreshKey = 0 }) {
   useEffect(() => {
     loadReport();
   }, [loadReport, refreshKey]);
+
+  /** Guarda la etiqueta de referencia y recarga el reporte para recalcular métricas. */
+  const handleLabelChange = useCallback(
+    async (documentId, value) => {
+      setSavingLabelId(documentId);
+      setError('');
+      try {
+        await setReferenceLabel(documentId, value === '' ? null : value);
+        const res = await getEvaluationReport();
+        setReport(res.data);
+      } catch (err) {
+        const detail = err?.response?.data?.message || err?.message || 'Error desconocido';
+        setError(`No se pudo guardar la etiqueta: ${detail}`);
+      } finally {
+        setSavingLabelId(null);
+      }
+    },
+    [],
+  );
 
   const pr = report?.precisionRecall;
   const docs = report?.perDocument || [];
@@ -321,22 +355,22 @@ export default function EvaluationReport({ refreshKey = 0 }) {
             <div className="dash-kpi-grid">
               <KpiCard
                 label="Precisión"
-                value={pr?.precision ?? 0}
+                value={pr?.precision ?? null}
                 accent={CHART_COLORS.precision}
-                description="De los documentos marcados como similares, cuántos tienen fuentes confirmadas."
+                description="De los documentos que el sistema marcó como similares, qué porcentaje estaba etiquetado como similar."
               />
               <KpiCard
                 label="Recall"
-                value={pr?.recall ?? 0}
+                value={pr?.recall ?? null}
                 accent={CHART_COLORS.recall}
-                description="Proporción del corpus en la que el sistema detectó similitud significativa."
+                description="De los documentos etiquetados como similares, qué porcentaje detectó el sistema."
               />
               <KpiCard
                 label="F1 Score"
-                value={pr?.f1Score ?? 0}
+                value={pr?.f1Score ?? null}
                 accent={CHART_COLORS.f1}
                 highlight
-                description="Balance armónico entre precisión y recall."
+                description="Media armónica entre precisión y recall."
               />
             </div>
 
@@ -346,12 +380,21 @@ export default function EvaluationReport({ refreshKey = 0 }) {
                 <strong>{pr?.detectedAsSimilar ?? 0}</strong>
               </div>
               <div className="dash-kpi-stat">
-                <span className="dash-kpi-stat__label">Con fuentes confirmadas</span>
-                <strong>{pr?.highSimilarityPairs ?? 0}</strong>
+                <span className="dash-kpi-stat__label">Documentos etiquetados</span>
+                <strong>
+                  {pr?.labeledDocuments ?? 0}/{pr?.totalDocuments ?? 0}
+                </strong>
               </div>
               <div className="dash-kpi-stat">
-                <span className="dash-kpi-stat__label">Total evaluados</span>
-                <strong>{pr?.totalDocuments ?? 0}</strong>
+                <span className="dash-kpi-stat__label">Matriz de confusión (VP · FP · VN · FN)</span>
+                <strong>
+                  {pr?.truePositives ?? 0} · {pr?.falsePositives ?? 0} · {pr?.trueNegatives ?? 0} ·{' '}
+                  {pr?.falseNegatives ?? 0}
+                </strong>
+              </div>
+              <div className="dash-kpi-stat">
+                <span className="dash-kpi-stat__label">Exactitud</span>
+                <strong>{pr?.accuracy === null || pr?.accuracy === undefined ? '—' : `${pr.accuracy}%`}</strong>
               </div>
             </div>
           </section>
@@ -363,9 +406,9 @@ export default function EvaluationReport({ refreshKey = 0 }) {
             </h3>
             <div className="dash-charts-grid">
               <MetricsComparisonChart
-                precision={pr?.precision ?? 0}
-                recall={pr?.recall ?? 0}
-                f1Score={pr?.f1Score ?? 0}
+                precision={pr?.precision ?? null}
+                recall={pr?.recall ?? null}
+                f1Score={pr?.f1Score ?? null}
               />
               <DocumentResultsChart
                 documents={docs}
@@ -418,6 +461,7 @@ export default function EvaluationReport({ refreshKey = 0 }) {
                       <th>Anomalías</th>
                       <th>Clasificación</th>
                       <th>Detección</th>
+                      <th>Etiqueta de referencia</th>
                       <th>Tiempo (s)</th>
                       <th>Analizado</th>
                       <th>IA</th>
@@ -455,6 +499,19 @@ export default function EvaluationReport({ refreshKey = 0 }) {
                             >
                               {doc.detectedAsSimilar ? 'Similar' : 'No similar'}
                             </span>
+                          </td>
+                          <td>
+                            <select
+                              className="dash-label-select"
+                              value={doc.referenceLabel ?? ''}
+                              disabled={savingLabelId === doc.documentId}
+                              onChange={(e) => handleLabelChange(doc.documentId, e.target.value)}
+                              aria-label={`Etiqueta de referencia de ${doc.title}`}
+                            >
+                              <option value="">Sin etiqueta</option>
+                              <option value="similar">Similar</option>
+                              <option value="original">Original</option>
+                            </select>
                           </td>
                           <td>{(doc.processingTimeMs / 1000).toFixed(2)}</td>
                           <td className="muted" style={{ fontSize: 12 }}>

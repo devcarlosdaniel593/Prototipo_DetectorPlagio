@@ -37,6 +37,8 @@ export const getEvaluationReport = () => {
   return API.get('/evaluation/report', { timeout: 60000 });
 };
 
-export const getEvaluationProgress = () => {
-  return API.get('/evaluation/progress', { timeout: 15000 });
+// ── Etiqueta de referencia de un documento (para precisión, recall y F1) ──
+// label: 'similar' | 'original' | null
+export const setReferenceLabel = (documentId, label) => {
+  return API.patch(`/evaluation/documents/${documentId}/label`, { label });
 };

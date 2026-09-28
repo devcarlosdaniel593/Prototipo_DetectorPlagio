@@ -1,32 +1,48 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Param,
+  ParseIntPipe,
+  Patch,
+} from '@nestjs/common';
 import { EvaluationService } from './evaluation.service';
+import { DocumentAnalysisService } from './document-analysis.service';
+import { SetReferenceLabelDto } from './set-reference-label.dto';
 
 @Controller('evaluation')
 export class EvaluationController {
   private readonly logger = new Logger(EvaluationController.name);
 
-  constructor(private readonly evaluationService: EvaluationService) {}
+  constructor(
+    private readonly evaluationService: EvaluationService,
+    private readonly documentAnalysisService: DocumentAnalysisService,
+  ) {}
 
   /**
-   * Estado en tiempo real del reporte (para polling desde el frontend).
-   * GET http://localhost:3000/evaluation/progress
-   */
-  @Get('progress')
-  getProgress() {
-    return this.evaluationService.getProgress();
-  }
-
-  /**
-   * Genera un reporte completo de evaluación del sistema.
-   * Incluye precisión, recall, F1, estilometría y rendimiento.
-   *
+   * Reporte de evaluación a partir de las métricas guardadas.
    * GET http://localhost:3000/evaluation/report
    */
   @Get('report')
   async generateReport() {
     this.logger.log('Solicitud recibida: GET /evaluation/report');
-    const report = await this.evaluationService.generateReport();
-    this.logger.log('Respuesta enviada: reporte de evaluación completado.');
-    return report;
+    return this.evaluationService.generateReport();
+  }
+
+  /**
+   * Asigna la etiqueta de referencia de un documento analizado.
+   * PATCH http://localhost:3000/evaluation/documents/5/label
+   * Body: { "label": "similar" | "original" | null }
+   */
+  @Patch('documents/:documentId/label')
+  async setReferenceLabel(
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Body() body: SetReferenceLabelDto,
+  ) {
+    return this.documentAnalysisService.setReferenceLabel(
+      documentId,
+      body.label ?? null,
+    );
   }
 }

@@ -48,6 +48,9 @@ model DocumentAnalysis {
   detectedAsSimilar    Boolean
   riskLevel            String
   systemClassification String
+  /// Etiqueta de referencia asignada por el evaluador ("similar" | "original").
+  /// null = documento sin etiquetar. Se usa para calcular precisión, recall y F1.
+  referenceLabel       String?
   analyzedAt           DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
