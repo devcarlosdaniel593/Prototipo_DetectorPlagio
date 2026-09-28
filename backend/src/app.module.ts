@@ -5,8 +5,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AnalysisModule } from './analysis/analysis.module';
-import { PlagiarismModule } from './plagiarism/plagiarism.module';
-import { EvaluationModule } from './evaluation/evaluation.module'; // ← NUEVO
+import { EvaluationModule } from './evaluation/evaluation.module';
 
 @Module({
   imports: [
@@ -14,8 +13,7 @@ import { EvaluationModule } from './evaluation/evaluation.module'; // ← NUEVO
     UsersModule,
     DocumentsModule,
     AnalysisModule,
-    PlagiarismModule,
-    EvaluationModule, // ← NUEVO
+    EvaluationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

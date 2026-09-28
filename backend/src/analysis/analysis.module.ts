@@ -15,6 +15,7 @@ import { StylometryService } from './stylometry.service';
     SearchQueryPlannerService,
     StylometryService,
   ],
-  exports: [AnalysisService],
+  // StylometryService se exporta para que EvaluationModule use la misma instancia
+  exports: [AnalysisService, StylometryService],
 })
 export class AnalysisModule {}

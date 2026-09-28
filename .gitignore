@@ -56,3 +56,5 @@ ia_service/models/
 # Archivos de SQLite (Si usas local en Prisma)
 *.db
 *.db-journal
+# Salidas del asistente
+Claude outputs/
