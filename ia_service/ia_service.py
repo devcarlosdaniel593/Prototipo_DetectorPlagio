@@ -1,34 +1,84 @@
-from flask import Flask, request, jsonify
-from sentence_transformers import SentenceTransformer, util
+"""
+Microservicio de similitud semántica del prototipo.
+
+POST /compare
+    Entrada:  {"texto_nuevo": "...", "textos_base": ["...", ...]}
+    Salida:   {"similitud_ia": 0-100, "analisis_detallado": [...]}
+    Para cada oración de texto_nuevo se busca la oración más parecida de
+    textos_base (similitud coseno entre embeddings) y se promedia.
+
+GET /health
+    Comprobación de vida para el despliegue.
+
+Variables de entorno (todas opcionales):
+    PORT                    puerto (por defecto 5000)
+    SEMANTIC_MODEL          modelo de sentence-transformers
+    MAX_FRASES_BASE         máximo de oraciones por texto base (por defecto 2000)
+    BASE_CACHE_MAX_ITEMS    textos base con embeddings en memoria (por defecto 48)
+"""
 import hashlib
-import nltk
+import logging
+import os
 import sys
+import threading
 from collections import OrderedDict
 
+import nltk
 import torch
+from flask import Flask, jsonify, request
+from sentence_transformers import SentenceTransformer, util
 
-# Descargamos el divisor de frases (solo la primera vez)
-try:
-    nltk.download('punkt')
-    nltk.download('punkt_tab') # Recurso adicional para versiones nuevas de nltk
-except Exception as e:
-    print(f"Aviso descarga nltk: {e}")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [ia_service] %(levelname)s %(message)s"
+)
+log = logging.getLogger("ia_service")
+
+MODEL_NAME = os.getenv("SEMANTIC_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+MAX_FRASES_BASE = int(os.getenv("MAX_FRASES_BASE", "2000"))
+BASE_CACHE_MAX_ITEMS = int(os.getenv("BASE_CACHE_MAX_ITEMS", "48"))
+SENT_LANGUAGE = "spanish"
+
+
+def _ensure_nltk_punkt():
+    """Descarga el divisor de oraciones solo si todavía no está instalado."""
+    for resource, package in (
+        ("tokenizers/punkt", "punkt"),
+        ("tokenizers/punkt_tab", "punkt_tab"),
+    ):
+        try:
+            nltk.data.find(resource)
+        except LookupError:
+            try:
+                nltk.download(package, quiet=True)
+            except Exception as exc:  # sin red: se intenta seguir igual
+                log.warning("No se pudo descargar %s: %s", package, exc)
+
+
+def split_sentences(text):
+    try:
+        return nltk.sent_tokenize(text, language=SENT_LANGUAGE)
+    except LookupError:
+        return nltk.sent_tokenize(text)
+
+
+_ensure_nltk_punkt()
 
 app = Flask(__name__)
+# Protege al servicio de cuerpos enormes (un documento de tesis ocupa < 1 MB).
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
-print("--- Iniciando Servicio de IA ---")
+log.info("Cargando modelo %s ...", MODEL_NAME)
 try:
-    # Mantenemos tu modelo multilingüe para soporte en español
-    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-    print("¡Modelo IA cargado correctamente!")
-except Exception as e:
-    print(f"Error cargando el modelo: {e}")
+    model = SentenceTransformer(MODEL_NAME)
+except Exception as exc:
+    log.error("Error cargando el modelo: %s", exc)
     sys.exit(1)
+log.info("Modelo cargado correctamente")
 
-# Reutilizar embeddings del texto base: el backend compara muchos párrafos contra los mismos PDFs.
+# El backend compara muchos segmentos contra los mismos documentos base:
+# se guardan sus embeddings para no recalcularlos en cada petición.
 _base_emb_cache = OrderedDict()
-_BASE_CACHE_MAX_ITEMS = 48
-MAX_FRASES_BASE = 240
+_cache_lock = threading.Lock()
 
 
 def _cache_key_textos_base(textos_base):
@@ -37,96 +87,112 @@ def _cache_key_textos_base(textos_base):
 
 
 def _frases_base_desde_docs(textos_base):
-    todas_frases_base = []
+    frases = []
     for doc in textos_base:
         if doc and isinstance(doc, str):
-            todas_frases_base.extend(nltk.sent_tokenize(doc))
+            frases.extend(split_sentences(doc))
 
-    if len(todas_frases_base) > MAX_FRASES_BASE:
-        step = (len(todas_frases_base) - 1) / (MAX_FRASES_BASE - 1)
-        idxs = [int(round(i * step)) for i in range(MAX_FRASES_BASE)]
-        todas_frases_base = [todas_frases_base[i] for i in idxs]
+    # Solo se muestrea si el texto base es extremadamente largo.
+    # Antes el límite era 240 oraciones y se perdían coincidencias en
+    # documentos de más de ~10 páginas.
+    if len(frases) > MAX_FRASES_BASE:
+        log.warning(
+            "Texto base con %d oraciones; se usan %d repartidas uniformemente",
+            len(frases),
+            MAX_FRASES_BASE,
+        )
+        step = (len(frases) - 1) / (MAX_FRASES_BASE - 1)
+        frases = [frases[int(round(i * step))] for i in range(MAX_FRASES_BASE)]
 
-    return todas_frases_base
+    return frases
 
 
 def _get_frases_y_embedding_base(textos_base):
     key = _cache_key_textos_base(textos_base)
-    if key in _base_emb_cache:
-        _base_emb_cache.move_to_end(key)
-        return _base_emb_cache[key]
+    with _cache_lock:
+        if key in _base_emb_cache:
+            _base_emb_cache.move_to_end(key)
+            return _base_emb_cache[key]
 
-    todas_frases_base = _frases_base_desde_docs(textos_base)
-    if not todas_frases_base:
+    frases = _frases_base_desde_docs(textos_base)
+    if not frases:
         return None, None
 
-    emb_base = model.encode(todas_frases_base, convert_to_tensor=True)
-    _base_emb_cache[key] = (todas_frases_base, emb_base)
-    while len(_base_emb_cache) > _BASE_CACHE_MAX_ITEMS:
-        _base_emb_cache.popitem(last=False)
+    emb_base = model.encode(frases, convert_to_tensor=True)
+    with _cache_lock:
+        _base_emb_cache[key] = (frases, emb_base)
+        while len(_base_emb_cache) > BASE_CACHE_MAX_ITEMS:
+            _base_emb_cache.popitem(last=False)
 
-    return todas_frases_base, emb_base
+    return frases, emb_base
 
 
-@app.route('/compare', methods=['POST'])
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "model": MODEL_NAME})
+
+
+@app.route("/compare", methods=["POST"])
 def compare():
     try:
-        data = request.json
-        texto_nuevo = data.get('texto_nuevo', '')
-        textos_base = data.get('textos_base', [])
+        data = request.get_json(silent=True) or {}
+        texto_nuevo = data.get("texto_nuevo", "")
+        textos_base = data.get("textos_base", [])
 
-        # 1. Validación de entrada
-        if not texto_nuevo:
+        if not texto_nuevo or not isinstance(texto_nuevo, str):
             return jsonify({"similitud_ia": 0.0, "analisis_detallado": []})
+        if not isinstance(textos_base, list):
+            return jsonify({"error": "textos_base debe ser una lista"}), 400
 
-        # 2. Segmentación en frases
-        frases_nuevas = nltk.sent_tokenize(texto_nuevo)
-        
-        # 3–4. Frases base (con caché de embeddings) + vectores del texto nuevo
+        frases_nuevas = split_sentences(texto_nuevo) or [texto_nuevo]
         todas_frases_base, emb_base = _get_frases_y_embedding_base(textos_base)
 
-        # Si no hay nada previo en la BD, la similitud es 0 pero no debe dar error
+        # Sin texto base la similitud es 0, sin error
         if not todas_frases_base:
-            print("ℹ️ No hay documentos previos para comparar.")
-            analisis_inicial = [{"texto": f, "similitud": 0.0, "referencia": ""} for f in frases_nuevas]
-            return jsonify({
-                "similitud_ia": 0.0,
-                "analisis_detallado": analisis_inicial
-            })
+            return jsonify(
+                {
+                    "similitud_ia": 0.0,
+                    "analisis_detallado": [
+                        {"texto": f, "similitud": 0.0, "referencia": ""}
+                        for f in frases_nuevas
+                    ],
+                }
+            )
 
         emb_nuevas = model.encode(frases_nuevas, convert_to_tensor=True)
-
-        # 5. Cálculo de similitud
         cos_sim_matrix = util.cos_sim(emb_nuevas, emb_base)
-        
+
         analisis_detallado = []
         for i, frase in enumerate(frases_nuevas):
-            # torch.max falla si la dimensión es 0, por eso validamos arriba
             max_val, max_idx = torch.max(cos_sim_matrix[i], dim=0)
             porcentaje = float(max_val.item()) * 100
-            
-            analisis_detallado.append({
-                "texto": frase,
-                "similitud": round(porcentaje, 2),
-                "referencia": todas_frases_base[max_idx.item()] if porcentaje > 30 else ""
-            })
+            analisis_detallado.append(
+                {
+                    "texto": frase,
+                    "similitud": round(porcentaje, 2),
+                    "referencia": todas_frases_base[max_idx.item()]
+                    if porcentaje > 30
+                    else "",
+                }
+            )
 
-        # 6. Cálculo Global
-        # Usamos el promedio de todas las frases analizadas
-        similitud_global = sum(f['similitud'] for f in analisis_detallado) / len(analisis_detallado)
+        # Similitud del segmento = promedio de sus oraciones
+        similitud_global = sum(f["similitud"] for f in analisis_detallado) / len(
+            analisis_detallado
+        )
 
-        print(f"✅ Análisis completado. Similitud: {similitud_global:.2f}%")
-        
-        return jsonify({
-            "similitud_ia": round(similitud_global, 2),
-            "analisis_detallado": analisis_detallado
-        })
+        return jsonify(
+            {
+                "similitud_ia": round(similitud_global, 2),
+                "analisis_detallado": analisis_detallado,
+            }
+        )
 
-    except Exception as e:
-        # Esto imprimirá el error real en tu terminal de Python
-        print(f"🔥 ERROR DETECTADO: {str(e)}")
-        return jsonify({"error": "Error interno en el procesamiento", "detalle": str(e)}), 500
+    except Exception as exc:
+        log.exception("Error procesando /compare")
+        return jsonify({"error": "Error interno en el procesamiento", "detalle": str(exc)}), 500
 
-if __name__ == '__main__':
-    # Ejecutamos en el puerto 5000 como lo tienes configurado en el Backend
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+
+if __name__ == "__main__":
+    # Desarrollo local (Windows incluido). En producción se usa gunicorn.
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=False, threaded=True)

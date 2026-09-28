@@ -1,0 +1,14 @@
+# Microservicio semántico (ia_service.py)
+# Versiones probadas en el entorno de desarrollo (Windows, Python .venv)
+Flask==3.1.3
+sentence-transformers==5.4.0
+transformers==5.5.4
+huggingface_hub==1.10.1
+torch==2.11.0
+nltk==3.9.4
+numpy==2.4.4
+scikit-learn==1.8.0
+scipy==1.17.1
+
+# Servidor de producción (solo Linux; en Windows se usa python ia_service.py)
+gunicorn>=22; sys_platform != "win32"
