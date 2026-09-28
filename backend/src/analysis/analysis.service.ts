@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateSimilarity } from './similarity.service';
 import { cleanText, splitIntoParagraphs } from './text.utils';
@@ -30,7 +31,6 @@ export type AnalysisResponse = {
   document: {
     id: number;
     title: string;
-    filePath: string;
     content: string;
     userId: number;
     createdAt: Date;
@@ -98,6 +98,13 @@ const analysisMaxSegments = (() => {
   return Math.min(Math.floor(n), 10000);
 })();
 
+/** Máximo de pares (segmento, fuente) guardados en la caché semántica. */
+const semanticCacheMaxEntries = (() => {
+  const n = Number(process.env.SEMANTIC_CACHE_MAX_ENTRIES ?? '5000');
+  if (!Number.isFinite(n) || n < 100) return 5000;
+  return Math.min(Math.floor(n), 50000);
+})();
+
 const analysisMaxMatchesOut = (() => {
   const n = Number(process.env.ANALYSIS_MAX_MATCHES_OUT ?? '800');
   if (!Number.isFinite(n) || n < 1) return 800;
@@ -122,7 +129,14 @@ export class AnalysisService {
     private readonly stylometryService: StylometryService,
   ) {}
 
-  private semanticCache = new Map<string, number>();
+  /**
+   * Caché de similitud semántica por par (segmento, fuente).
+   * - La clave es un hash SHA-256 del texto completo: antes se usaban los
+   *   primeros 280 caracteres y dos documentos con la misma portada chocaban.
+   * - Tiene tamaño máximo (se descarta el par usado hace más tiempo).
+   * - Solo guarda respuestas válidas: si el microservicio falla no se guarda 0.
+   */
+  private readonly semanticCache = new Map<string, number>();
 
   async analyzeDocument(documentId: number): Promise<AnalysisResponse> {
     const startedAt = Date.now();
@@ -144,6 +158,7 @@ export class AnalysisService {
     // ── 1. Fuentes internas ───────────────────────────────────────────────────
     const internalDocuments = await this.prisma.document.findMany({
       where: { id: { not: documentId } },
+      select: { id: true, title: true, content: true },
     });
 
     // ── 2. Fuentes web ────────────────────────────────────────────────────────
@@ -195,7 +210,6 @@ export class AnalysisService {
         document: {
           id: targetDocument.id,
           title: targetDocument.title,
-          filePath: targetDocument.filePath,
           content: targetText,
           userId: targetDocument.userId,
           createdAt: targetDocument.createdAt,
@@ -240,7 +254,6 @@ export class AnalysisService {
       document: {
         id: targetDocument.id,
         title: targetDocument.title,
-        filePath: targetDocument.filePath,
         content: targetText,
         userId: targetDocument.userId,
         createdAt: targetDocument.createdAt,
@@ -252,22 +265,6 @@ export class AnalysisService {
       analysisDurationMs: Date.now() - startedAt,
       stylometry,
     };
-  }
-
-  /**
-   * Extrae un fragmento representativo del texto ignorando los primeros párrafos
-   * (que suelen ser encabezados institucionales) para mejorar la query de búsqueda web.
-   */
-  private extractRepresentativeText(text: string): string {
-    const paragraphs = splitIntoParagraphs(text);
-
-    // Saltar los primeros párrafos cortos (encabezados, portada, índice)
-    const substantiveParagraphs = paragraphs.filter((p) => p.length > 120);
-
-    if (!substantiveParagraphs.length) return text.slice(0, 1200);
-
-    // Tomar desde el primer párrafo sustantivo, máximo 1200 caracteres
-    return substantiveParagraphs.slice(0, 4).join(' ').slice(0, 1200);
   }
 
   private buildSegments(targetText: string): string[] {
@@ -515,8 +512,8 @@ export class AnalysisService {
     text2: string,
     semanticState: { degraded: boolean },
   ): Promise<number> {
-    const cacheKey = `${this.shortenForCache(text1)}::${this.shortenForCache(text2)}`;
-    const cached = this.semanticCache.get(cacheKey);
+    const cacheKey = `${this.hashForCache(text1)}:${this.hashForCache(text2)}`;
+    const cached = this.readSemanticCache(cacheKey);
     if (cached !== undefined) return cached;
 
     let lastError: unknown;
@@ -530,7 +527,7 @@ export class AnalysisService {
 
         const payload = response.data as { similitud_ia?: number };
         const similarity = this.round(payload.similitud_ia || 0);
-        this.semanticCache.set(cacheKey, similarity);
+        this.writeSemanticCache(cacheKey, similarity);
         if (attempt > 1) {
           this.logger.log(
             `IA semántica: OK en intento ${attempt}/${semanticIaMaxAttempts}`,
@@ -554,7 +551,7 @@ export class AnalysisService {
     this.logger.warn(
       `IA semántica no respondió tras ${semanticIaMaxAttempts} intento(s): ${finalMsg}`,
     );
-    this.semanticCache.set(cacheKey, 0);
+    // No se guarda en caché: el próximo análisis volverá a intentarlo.
     semanticState.degraded = true;
     return 0;
   }
@@ -563,8 +560,26 @@ export class AnalysisService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private shortenForCache(text: string): string {
-    return cleanText(text).slice(0, 280);
+  private hashForCache(text: string): string {
+    return createHash('sha256').update(cleanText(text), 'utf8').digest('hex');
+  }
+
+  private readSemanticCache(key: string): number | undefined {
+    const value = this.semanticCache.get(key);
+    if (value === undefined) return undefined;
+    // Se reinserta para marcarlo como usado recientemente
+    this.semanticCache.delete(key);
+    this.semanticCache.set(key, value);
+    return value;
+  }
+
+  private writeSemanticCache(key: string, value: number): void {
+    this.semanticCache.set(key, value);
+    while (this.semanticCache.size > semanticCacheMaxEntries) {
+      const oldestKey = this.semanticCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.semanticCache.delete(oldestKey);
+    }
   }
 
   private deduplicateSources(sources: SourceDocument[]): SourceDocument[] {

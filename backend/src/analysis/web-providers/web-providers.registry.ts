@@ -1,7 +1,8 @@
-import axios from 'axios';
 import type { ExternalSourceDocument, WebSearchProvider } from './web-provider.types';
 import {
+  contactEmail,
   defaultHeaders,
+  getWithRetry,
   hashString,
   rebuildOpenAlexAbstract,
 } from './web-provider.utils';
@@ -25,7 +26,7 @@ function createWikipediaProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const headers = defaultHeaders();
       const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=${limit}`;
-      const searchResponse = await axios.get(url, { timeout: 8000, headers });
+      const searchResponse = await getWithRetry(url, { timeout: 8000, headers });
       const results =
         (searchResponse.data as { query?: { search?: Array<{ pageid: number; title: string }> } })
           .query?.search || [];
@@ -35,7 +36,7 @@ function createWikipediaProvider(): WebSearchProvider {
       for (const item of results) {
         const extractUrl = `https://es.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&pageids=${item.pageid}&format=json&exsectionformat=plain&exsentences=15`;
         try {
-          const extractResponse = await axios.get(extractUrl, { timeout: 8000, headers });
+          const extractResponse = await getWithRetry(extractUrl, { timeout: 8000, headers });
           const page = (
             extractResponse.data as {
               query?: { pages?: Record<string, { extract?: string; title?: string }> };
@@ -64,8 +65,12 @@ function createOpenAlexProvider(): WebSearchProvider {
   return {
     name: 'openalex',
     search: async (query, limit) => {
-      const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${limit}&select=id,display_name,abstract_inverted_index,primary_location`;
-      const response = await axios.get(url, { timeout: 8000 });
+      // mailto: OpenAlex atiende en su "polite pool" (menos errores 429)
+      const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=${limit}&select=id,display_name,abstract_inverted_index,primary_location&mailto=${encodeURIComponent(contactEmail())}`;
+      const response = await getWithRetry(url, {
+        timeout: 8000,
+        headers: defaultHeaders(),
+      });
       const works =
         (response.data as {
           results?: Array<{
@@ -100,7 +105,7 @@ function createSemanticScholarProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${Math.min(limit, 5)}&fields=title,abstract,url,year`;
       try {
-        const response = await axios.get(url, {
+        const response = await getWithRetry(url, {
           timeout: 12000,
           headers: defaultHeaders(),
         });
@@ -151,7 +156,7 @@ function createSerpApiGoogleScholarProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://serpapi.com/search.json?engine=google_scholar&q=${encodeURIComponent(query)}&hl=es&num=${Math.min(limit, 5)}&api_key=${encodeURIComponent(apiKey)}`;
       try {
-        const response = await axios.get(url, { timeout: 12000 });
+        const response = await getWithRetry(url, { timeout: 12000 });
         const results =
           (response.data as {
             organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
@@ -183,7 +188,7 @@ function createSerpApiProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&num=${limit}&hl=es&api_key=${encodeURIComponent(apiKey)}`;
       try {
-        const response = await axios.get(url, { timeout: 7000 });
+        const response = await getWithRetry(url, { timeout: 7000 });
         const results =
           (response.data as {
             organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
@@ -211,7 +216,7 @@ function createDuckDuckGoProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
       try {
-        const response = await axios.get(url, {
+        const response = await getWithRetry(url, {
           timeout: 8000,
           headers: defaultHeaders(),
         });
@@ -271,7 +276,7 @@ function createZenodoProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://zenodo.org/api/records?q=${encodeURIComponent(query)}&size=${Math.min(limit, 5)}&sort=bestmatch`;
       try {
-        const response = await axios.get(url, { timeout: 10000, headers: defaultHeaders() });
+        const response = await getWithRetry(url, { timeout: 10000, headers: defaultHeaders() });
         const hits =
           (response.data as {
             hits?: {
@@ -314,7 +319,7 @@ function createHalProvider(): WebSearchProvider {
     search: async (query, limit) => {
       const url = `https://api.archives-ouvertes.fr/search/?q=${encodeURIComponent(query)}&rows=${Math.min(limit, 5)}&fl=title_s,abstract_s,uri_s&wt=json`;
       try {
-        const response = await axios.get(url, { timeout: 10000, headers: defaultHeaders() });
+        const response = await getWithRetry(url, { timeout: 10000, headers: defaultHeaders() });
         const docsRaw =
           (response.data as {
             response?: {
