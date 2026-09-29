@@ -34,6 +34,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [ia_service] %(levelname)s %(message)s"
 )
 log = logging.getLogger("ia_service")
+# Silenciar el detalle de cada petición HTTP interna de las librerías
+for noisy in ("httpx", "huggingface_hub", "urllib3"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 MAX_FRASES_BASE = int(os.getenv("MAX_FRASES_BASE", "2000"))
 BASE_CACHE_MAX_ITEMS = int(os.getenv("BASE_CACHE_MAX_ITEMS", "48"))
