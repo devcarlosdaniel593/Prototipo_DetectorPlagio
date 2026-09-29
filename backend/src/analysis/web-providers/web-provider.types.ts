@@ -1,10 +1,9 @@
 export type WebProviderName =
-  | 'wikipedia'
   | 'openalex'
+  | 'crossref'
   | 'semantic_scholar'
   | 'serpapi'
   | 'serpapi_google_scholar'
-  | 'duckduckgo'
   | 'zenodo'
   | 'hal';
 

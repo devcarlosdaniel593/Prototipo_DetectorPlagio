@@ -7,58 +7,22 @@ import {
   rebuildOpenAlexAbstract,
 } from './web-provider.utils';
 
+/**
+ * Proveedores de fuentes externas. Solo repositorios académicos
+ * (artículos, tesis, preprints). Se retiraron Wikipedia y DuckDuckGo
+ * (cuyas respuestas provienen principalmente de Wikipedia) por no ser
+ * fuentes académicas arbitradas.
+ */
 export function createAllWebSearchProviders(): WebSearchProvider[] {
   return [
-    createWikipediaProvider(),
     createOpenAlexProvider(),
+    createCrossrefProvider(),
     createSemanticScholarProvider(),
     createSerpApiGoogleScholarProvider(),
     createSerpApiProvider(),
-    createDuckDuckGoProvider(),
     createZenodoProvider(),
     createHalProvider(),
   ];
-}
-
-function createWikipediaProvider(): WebSearchProvider {
-  return {
-    name: 'wikipedia',
-    search: async (query, limit) => {
-      const headers = defaultHeaders();
-      const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=${limit}`;
-      const searchResponse = await getWithRetry(url, { timeout: 8000, headers });
-      const results =
-        (searchResponse.data as { query?: { search?: Array<{ pageid: number; title: string }> } })
-          .query?.search || [];
-      if (!results.length) return [];
-
-      const docs: ExternalSourceDocument[] = [];
-      for (const item of results) {
-        const extractUrl = `https://es.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&pageids=${item.pageid}&format=json&exsectionformat=plain&exsentences=15`;
-        try {
-          const extractResponse = await getWithRetry(extractUrl, { timeout: 8000, headers });
-          const page = (
-            extractResponse.data as {
-              query?: { pages?: Record<string, { extract?: string; title?: string }> };
-            }
-          ).query?.pages?.[String(item.pageid)];
-          const text = page?.extract?.trim() || '';
-          if (text.length < 100) continue;
-          docs.push({
-            id: -(item.pageid || docs.length + 1),
-            title: page?.title || item.title,
-            content: text,
-            sourceType: 'web',
-            url: `https://es.wikipedia.org/?curid=${item.pageid}`,
-            provider: 'wikipedia',
-          });
-        } catch {
-          // ignorar
-        }
-      }
-      return docs;
-    },
-  };
 }
 
 function createOpenAlexProvider(): WebSearchProvider {
@@ -95,6 +59,58 @@ function createOpenAlexProvider(): WebSearchProvider {
         });
       }
       return docs;
+    },
+  };
+}
+
+/**
+ * Crossref: registro oficial de DOI de las editoriales académicas.
+ * Solo se usan los trabajos que publican su resumen (abstract).
+ */
+function createCrossrefProvider(): WebSearchProvider {
+  return {
+    name: 'crossref',
+    search: async (query, limit) => {
+      const url = `https://api.crossref.org/works?query=${encodeURIComponent(query)}&rows=${Math.min(limit * 2, 10)}&filter=has-abstract:true&select=DOI,title,abstract,URL&mailto=${encodeURIComponent(contactEmail())}`;
+      try {
+        const response = await getWithRetry(url, {
+          timeout: 10000,
+          headers: defaultHeaders(),
+        });
+        const items =
+          (response.data as {
+            message?: {
+              items?: Array<{
+                DOI?: string;
+                title?: string[];
+                abstract?: string;
+                URL?: string;
+              }>;
+            };
+          }).message?.items || [];
+
+        const docs: ExternalSourceDocument[] = [];
+        for (const item of items) {
+          if (docs.length >= limit) break;
+          // El resumen viene en formato JATS (XML): se quitan las etiquetas
+          const abstract = (item.abstract || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (abstract.length < 80) continue;
+          docs.push({
+            id: -Math.abs(hashString(`crossref-${item.DOI ?? docs.length}`)),
+            title: item.title?.[0] || 'Artículo (Crossref)',
+            content: abstract.slice(0, 1500),
+            sourceType: 'web',
+            url: item.URL || (item.DOI ? `https://doi.org/${item.DOI}` : undefined),
+            provider: 'crossref',
+          });
+        }
+        return docs;
+      } catch {
+        return [];
+      }
     },
   };
 }
@@ -203,66 +219,6 @@ function createSerpApiProvider(): WebSearchProvider {
             url: item.link,
             provider: 'serpapi' as const,
           }));
-      } catch {
-        return [];
-      }
-    },
-  };
-}
-
-function createDuckDuckGoProvider(): WebSearchProvider {
-  return {
-    name: 'duckduckgo',
-    search: async (query, limit) => {
-      const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-      try {
-        const response = await getWithRetry(url, {
-          timeout: 8000,
-          headers: defaultHeaders(),
-        });
-        const payload = response.data as {
-          AbstractText?: string;
-          AbstractURL?: string;
-          Heading?: string;
-          RelatedTopics?: Array<{
-            Text?: string;
-            FirstURL?: string;
-            Topics?: Array<{ Text?: string; FirstURL?: string }>;
-          }>;
-        };
-
-        const docs: ExternalSourceDocument[] = [];
-        if ((payload.AbstractText || '').trim().length > 60) {
-          docs.push({
-            id: -Math.abs(hashString(`ddg-abstract-${query}`)),
-            title: payload.Heading || 'DuckDuckGo',
-            content: payload.AbstractText!.trim(),
-            sourceType: 'web',
-            url: payload.AbstractURL,
-            provider: 'duckduckgo',
-          });
-        }
-
-        const flatTopics: Array<{ Text?: string; FirstURL?: string }> = [];
-        for (const topic of payload.RelatedTopics || []) {
-          if (topic.Topics?.length) flatTopics.push(...topic.Topics);
-          else flatTopics.push(topic);
-        }
-
-        for (const [idx, topic] of flatTopics.entries()) {
-          if (docs.length >= limit) break;
-          const text = (topic.Text || '').trim();
-          if (text.length < 60) continue;
-          docs.push({
-            id: -Math.abs(hashString(`ddg-${query}-${idx}`)),
-            title: text.slice(0, 80),
-            content: text,
-            sourceType: 'web',
-            url: topic.FirstURL,
-            provider: 'duckduckgo',
-          });
-        }
-        return docs.slice(0, limit);
       } catch {
         return [];
       }
