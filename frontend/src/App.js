@@ -6,6 +6,14 @@ import EvaluationReport from './components/EvaluationReport';
 import BatchResultsSummary from './components/BatchResultsSummary';
 import BatchGradeEvaluation from './components/BatchGradeEvaluation';
 
+/**
+ * Componente raíz del frontend.
+ * Alterna entre dos vistas: 'analyzer' (carga de PDF y resultados) y
+ * 'evaluation' (dashboard de métricas guardadas). Guarda el último resultado
+ * individual o la lista de resultados del lote; si hay lote, muestra el
+ * resultado del documento seleccionado. evaluationRefreshKey se incrementa
+ * tras cada análisis guardado para que el dashboard se recargue.
+ */
 function App() {
   const [result, setResult] = useState(null);
   const [batchResults, setBatchResults] = useState(null);

@@ -26,6 +26,10 @@ export type SaveDocumentResult = {
   reused: boolean;
 };
 
+/**
+ * Acceso a la tabla Document: creación a partir de un PDF subido y
+ * eliminación de documentos temporales del modo sesión.
+ */
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
@@ -41,6 +45,15 @@ export class DocumentsService {
    *   se devuelve ese registro en lugar de crear un duplicado.
    *   Solo debe usarse en modo repositorio: en modo sesión el documento se borra
    *   al final y no se puede reutilizar uno del repositorio.
+   *
+   * @param file      Archivo recibido por multer (se usa file.path y file.originalname).
+   * @param userId    Id del usuario propietario; debe existir en la tabla User.
+   * @param title     Título del documento.
+   * @param reuseExisting true para reutilizar un documento con el mismo contentHash.
+   * @returns El documento y si fue reutilizado.
+   * @throws BadRequestException si no hay archivo o el PDF no tiene texto extraíble.
+   * @throws NotFoundException si el usuario no existe.
+   * Los errores de lectura del PDF (pdf2json) se propagan como Error.
    */
   async saveDocument(
     file: Express.Multer.File,

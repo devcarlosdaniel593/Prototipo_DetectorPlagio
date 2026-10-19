@@ -10,6 +10,7 @@ import { formatPercent } from '../utils/format';
 const BATCH_DISCLAIMER =
   'Las calificaciones sugeridas corresponden únicamente a una recomendación generada por el sistema basada en el porcentaje de similitud y la calificación ingresada por el docente. La decisión final de evaluación corresponde exclusivamente al docente.';
 
+/** Calcula el estado de una fila: similitud, nota del sistema, nota del docente, nota sugerida y estado. */
 function buildRowState(entry, index, teacherInputs) {
   const analyzed = entry.status === 'ok' && entry.result;
   const similarity = analyzed ? getSimilarityFromBatchEntry(entry) : null;
@@ -43,6 +44,7 @@ function buildRowState(entry, index, teacherInputs) {
   };
 }
 
+/** Tabla de calificación sugerida para todos los documentos de un lote. */
 export default function BatchGradeEvaluation({ items }) {
   const [teacherInputs, setTeacherInputs] = useState({});
 

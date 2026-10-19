@@ -6,6 +6,11 @@ import {
 } from '../utils/gradeSuggestion';
 import { formatPercent } from '../utils/format';
 
+/**
+ * Calificación sugerida para un documento: convierte la similitud en una nota
+ * del prototipo ((100 − similitud) / 10) y la promedia con la nota que
+ * ingresa el docente.
+ */
 export default function GradeSuggestion({ similarityPercent }) {
   const [teacherInput, setTeacherInput] = useState('');
   const [inputError, setInputError] = useState('');

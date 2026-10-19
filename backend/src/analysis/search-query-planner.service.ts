@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { cleanText, splitIntoParagraphs } from './text.utils';
 
+/**
+ * Resultado de la planificación: `queries` son las consultas que se enviarán
+ * a los proveedores; el resto son los insumos con que se construyeron.
+ */
 export type SearchQueryPlan = {
   queries: string[];
   phrases: string[];
@@ -10,6 +14,10 @@ export type SearchQueryPlan = {
   titleQuery: string | null;
 };
 
+/**
+ * Palabras excluidas de las palabras clave: términos institucionales y de
+ * estructura de documentos académicos que no describen el tema del trabajo.
+ */
 const QUERY_BLOCKLIST = new Set([
   'universidad',
   'metropolitana',
@@ -53,6 +61,8 @@ const QUERY_BLOCKLIST = new Set([
   'sobre',
 ]);
 
+// SEARCH_QUERY_IA_ENABLED=false desactiva el uso del microservicio semántico
+// para enriquecer consultas; SEARCH_MAX_QUERIES limita las consultas (2–10, por defecto 6).
 const semanticIaUrl =
   process.env.SEMANTIC_IA_URL ?? 'http://127.0.0.1:5000/compare';
 const queryIaEnabled = process.env.SEARCH_QUERY_IA_ENABLED !== 'false';
@@ -69,6 +79,15 @@ const maxQueries = (() => {
 export class SearchQueryPlannerService {
   private readonly logger = new Logger(SearchQueryPlannerService.name);
 
+  /**
+   * Construye la lista de consultas de búsqueda para un documento.
+   * Orden de prioridad: consultas enriquecidas con el servicio semántico,
+   * consultas heurísticas y, por último, el título normalizado. Se eliminan
+   * duplicados y consultas de menos de 8 caracteres, y se limita a SEARCH_MAX_QUERIES.
+   *
+   * Las consultas se forman con palabras y frases del propio documento, que
+   * después se envían a servicios externos.
+   */
   async planQueries(fullText: string, title?: string): Promise<SearchQueryPlan> {
     const phrases = this.extractRelevantPhrases(fullText);
     const keywords = this.extractKeywords(fullText);
@@ -106,6 +125,10 @@ export class SearchQueryPlannerService {
     return keywords.slice(0, 8).join(' ');
   }
 
+  /**
+   * Toma la primera oración (60–280 caracteres) de hasta 4 segmentos de
+   * 100–500 caracteres y la comprime a 120 caracteres.
+   */
   private extractRelevantPhrases(text: string): string[] {
     const paragraphs = splitIntoParagraphs(text);
     const substantive = paragraphs.filter((p) => p.length > 100 && p.length < 500);
@@ -123,6 +146,13 @@ export class SearchQueryPlannerService {
       .map((s) => this.compressQuery(s, 120));
   }
 
+  /**
+   * Palabras clave por frecuencia. Antes de contar, elimina las palabras que
+   * empiezan con mayúscula fuera del inicio de oración (para excluir nombres
+   * propios). Considera palabras normalizadas de al menos 5 letras que no
+   * estén en QUERY_BLOCKLIST ni sean números. Devuelve hasta 10: primero las
+   * repetidas (por frecuencia) y luego las únicas (las más largas primero).
+   */
   private extractKeywords(text: string): string[] {
     const withoutProperNouns = text
       .replace(/([.!?]\s+)[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+/g, '$1__SENT__')
@@ -151,6 +181,11 @@ export class SearchQueryPlannerService {
     return [...new Set([...repeated, ...singles])].slice(0, 10);
   }
 
+  /**
+   * Conceptos técnicos detectados con expresiones regulares: siglas en
+   * mayúsculas, palabras compuestas con guion, términos con dígitos y
+   * construcciones como "modelo X" o "algoritmo X". Devuelve hasta 8.
+   */
   private extractTechnicalConcepts(text: string): string[] {
     const concepts = new Set<string>();
 
@@ -181,6 +216,11 @@ export class SearchQueryPlannerService {
     return this.compressQuery(cleaned, 90);
   }
 
+  /**
+   * Combina keywords, frases, conceptos y título en consultas de hasta 140
+   * caracteres. Si no se pudo formar ninguna, usa las 5 primeras palabras
+   * largas del texto como consulta de emergencia.
+   */
   private buildHeuristicQueries(input: {
     phrases: string[];
     keywords: string[];
@@ -262,6 +302,7 @@ export class SearchQueryPlannerService {
     }
   }
 
+  /** Elimina consultas vacías, de menos de 8 caracteres o repetidas (sin distinguir mayúsculas). */
   private uniqueQueries(queries: string[]): string[] {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -274,6 +315,7 @@ export class SearchQueryPlannerService {
     return out;
   }
 
+  /** Normaliza con cleanText y corta por palabras completas sin superar maxLen caracteres. */
   private compressQuery(text: string, maxLen: number): string {
     const cleaned = cleanText(text);
     if (!cleaned) return '';

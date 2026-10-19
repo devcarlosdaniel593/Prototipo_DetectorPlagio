@@ -12,6 +12,10 @@ const PUBLIC_USER_FIELDS = {
   createdAt: true,
 } as const;
 
+/**
+ * Gestión de usuarios en la tabla User. Las respuestas nunca incluyen la
+ * contraseña (select con PUBLIC_USER_FIELDS).
+ */
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -23,6 +27,11 @@ export class UsersService {
     });
   }
 
+  /**
+   * Crea un usuario: normaliza nombre y correo (correo en minúsculas) y
+   * guarda la contraseña con hashPassword.
+   * @throws ConflictException (409) si el correo ya existe (error P2002 de Prisma).
+   */
   async create(data: CreateUserDto) {
     try {
       return await this.prisma.user.create({

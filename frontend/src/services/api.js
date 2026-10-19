@@ -1,5 +1,10 @@
 import axios from 'axios';
 
+/**
+ * Cliente HTTP del backend NestJS. La URL base se toma de
+ * REACT_APP_API_BASE_URL (se fija al compilar el frontend) o, si no existe,
+ * de http://localhost:3000.
+ */
 const API = axios.create({
   baseURL: process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000',
 });
@@ -33,6 +38,7 @@ export const uploadDocumentBatch = (
   });
 };
 
+// GET /evaluation/report con un tiempo de espera de 60 s.
 export const getEvaluationReport = () => {
   return API.get('/evaluation/report', { timeout: 60000 });
 };

@@ -17,10 +17,22 @@ import type { BatchAnalysisResult } from './batch-analysis.types';
 
 export type { BatchAnalysisResult } from './batch-analysis.types';
 
+/**
+ * Endpoints de carga y análisis de PDF.
+ * Multer guarda temporalmente cada archivo en ./uploads (máx. 10 MB por
+ * archivo); DocumentsService lo elimina tras extraer el texto.
+ */
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly uploadPipeline: DocumentUploadPipeline) {}
 
+  /**
+   * POST /documents/upload (multipart/form-data)
+   * Campos: file (PDF), title, userId, persistToRepository (opcional, por defecto true).
+   * La validación de title y userId la hace UploadDocumentDto mediante el
+   * ValidationPipe global; además se rechaza un título compuesto solo de espacios.
+   * @returns AnalysisResponse del documento.
+   */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -45,6 +57,15 @@ export class DocumentsController {
     );
   }
 
+  /**
+   * POST /documents/upload-batch (multipart/form-data)
+   * Campos: files (hasta 10 PDF), titles (JSON con un título por archivo, en
+   * el mismo orden), userId y persistToRepository (opcional, por defecto true).
+   * Responde 400 si faltan archivos, si titles no es un JSON válido, si no
+   * coincide el número de títulos y archivos, si userId no es válido o si
+   * algún título está vacío.
+   * @returns Un BatchAnalysisResult por archivo.
+   */
   @Post('upload-batch')
   @UseInterceptors(
     FilesInterceptor('files', 10, {

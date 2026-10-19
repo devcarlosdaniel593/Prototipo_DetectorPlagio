@@ -10,6 +10,7 @@ import {
 // TIPOS PÚBLICOS
 // ─────────────────────────────────────────────
 
+/** Métricas guardadas de un documento, tal como se devuelven en el reporte. */
 export type DocumentMetric = {
   documentId: number;
   title: string;
@@ -46,6 +47,10 @@ export type PrecisionRecallMetrics = {
   accuracy: number | null;
 };
 
+/**
+ * Indicadores de estilometría del corpus. highAuthorshipMatches cuenta los
+ * pares de documentos con similitud de estilo ≥ AUTHORSHIP_THRESHOLD (70).
+ */
 export type StylometryMetrics = {
   totalAnalyzed: number;
   withAnomalies: number;
@@ -54,6 +59,10 @@ export type StylometryMetrics = {
   highAuthorshipMatches: number;
 };
 
+/**
+ * Tiempos de análisis guardados (ms) y cantidad de análisis en los que el
+ * servicio semántico quedó degradado.
+ */
 export type PerformanceMetrics = {
   avgProcessingTimeMs: number;
   minProcessingTimeMs: number;
@@ -62,6 +71,7 @@ export type PerformanceMetrics = {
   degradedServiceCount: number;
 };
 
+/** Respuesta de GET /evaluation/report. */
 export type EvaluationReport = {
   generatedAt: string;
   totalDocumentsInDB: number;
@@ -80,6 +90,12 @@ export type EvaluationReport = {
 // SERVICIO
 // ─────────────────────────────────────────────
 
+/**
+ * Genera el reporte de evaluación del prototipo a partir de la tabla
+ * DocumentAnalysis: matriz de confusión y precisión/recall/F1/exactitud
+ * (solo sobre documentos etiquetados), indicadores de estilometría y de
+ * rendimiento, y un resumen en texto.
+ */
 @Injectable()
 export class EvaluationService {
   private readonly logger = new Logger(EvaluationService.name);
@@ -261,6 +277,7 @@ export class EvaluationService {
     };
   }
 
+  /** Promedio, mínimo y máximo de processingTimeMs y número de análisis degradados. */
   private calculatePerformanceMetrics(
     metrics: DocumentMetric[],
   ): PerformanceMetrics {
@@ -288,6 +305,7 @@ export class EvaluationService {
     };
   }
 
+  /** Resumen en texto del reporte; indica explícitamente cuando P/R/F1 no se pueden calcular. */
   private buildSummary(
     pr: PrecisionRecallMetrics,
     sty: StylometryMetrics,
@@ -315,6 +333,7 @@ export class EvaluationService {
     );
   }
 
+  /** Reporte con todos los indicadores en cero (o null) cuando no hay métricas guardadas. */
   private emptyReport(
     totalDocumentsInDB: number,
     documentsPendingMetrics: number,

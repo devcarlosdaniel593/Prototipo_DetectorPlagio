@@ -11,6 +11,20 @@ import { cleanText } from './text.utils';
  *   el score coseno.
  * - Guarda la firma de los tokens para evitar recalcular TF-IDF dos veces
  *   cuando se llama desde calculateSimilarityAgainstBestChunk en lotes.
+ *
+ * Detalle del cálculo:
+ *  1. Ambos textos se normalizan con cleanText.
+ *  2. Se crea un corpus TF-IDF (librería `natural`) con solo esos dos
+ *     documentos. Con un corpus de dos documentos, los términos que aparecen
+ *     en ambos reciben un IDF menor que los que aparecen solo en uno.
+ *  3. Se calcula la similitud coseno entre los dos vectores TF-IDF.
+ *  4. Se multiplica por un factor de longitud entre 0,75 y 1,0 según la
+ *     proporción de palabras del texto más corto frente al más largo.
+ *
+ * @param text1 Primer texto (en el análisis: el segmento del documento).
+ * @param text2 Segundo texto (la fuente o un fragmento de ella).
+ * @returns Similitud léxica en escala 0–100 (0 si algún texto queda vacío
+ *          tras la normalización o no comparte vocabulario ponderado).
  */
 export function calculateSimilarity(text1: string, text2: string): number {
   const clean1 = cleanText(text1);

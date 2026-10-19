@@ -25,6 +25,15 @@ export function createAllWebSearchProviders(): WebSearchProvider[] {
   ];
 }
 
+// Cada proveedor:
+//  - consulta una API pública y pide solo los campos necesarios;
+//  - descarta resultados sin resumen o con resumen demasiado corto;
+//  - algunos recortan el contenido (Crossref a 1500 caracteres; Zenodo y HAL a 1200);
+//  - salvo OpenAlex, devuelve [] ante cualquier error, para no interrumpir el análisis.
+// OpenAlex no captura errores: si falla, Promise.allSettled en WebSourceService
+// lo registra como proveedor fallido.
+
+/** OpenAlex: catálogo abierto de trabajos académicos. Requiere resumen de ≥ 60 caracteres. */
 function createOpenAlexProvider(): WebSearchProvider {
   return {
     name: 'openalex',
@@ -115,6 +124,7 @@ function createCrossrefProvider(): WebSearchProvider {
   };
 }
 
+/** Semantic Scholar: buscador académico. Hasta 5 resultados con resumen de ≥ 80 caracteres. */
 function createSemanticScholarProvider(): WebSearchProvider {
   return {
     name: 'semantic_scholar',
@@ -162,6 +172,11 @@ function createSemanticScholarProvider(): WebSearchProvider {
   };
 }
 
+/**
+ * Google Scholar a través de SerpAPI (servicio comercial). Solo se activa si
+ * existe SERPAPI_KEY; sin clave, el proveedor devuelve siempre []. Usa el
+ * fragmento (snippet) del resultado como contenido.
+ */
 function createSerpApiGoogleScholarProvider(): WebSearchProvider {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) {
@@ -194,6 +209,7 @@ function createSerpApiGoogleScholarProvider(): WebSearchProvider {
   };
 }
 
+/** Búsqueda general de Google a través de SerpAPI. Igual que el anterior, solo con SERPAPI_KEY. */
 function createSerpApiProvider(): WebSearchProvider {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) {
@@ -226,6 +242,7 @@ function createSerpApiProvider(): WebSearchProvider {
   };
 }
 
+/** Zenodo: repositorio abierto de investigación. Usa la descripción del registro sin etiquetas HTML. */
 function createZenodoProvider(): WebSearchProvider {
   return {
     name: 'zenodo',
@@ -269,6 +286,7 @@ function createZenodoProvider(): WebSearchProvider {
   };
 }
 
+/** HAL: archivo abierto francés de publicaciones científicas. Usa el resumen (abstract_s). */
 function createHalProvider(): WebSearchProvider {
   return {
     name: 'hal',

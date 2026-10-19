@@ -6,6 +6,11 @@ import { WebSourceService } from './web-source.service';
 import { SearchQueryPlannerService } from './search-query-planner.service';
 import { StylometryService } from './stylometry.service';
 
+/**
+ * Módulo de análisis: similitud léxica y semántica, búsqueda de fuentes web y
+ * estilometría. Lo importan DocumentsModule (subida y análisis) y
+ * EvaluationModule (reporte).
+ */
 @Module({
   imports: [PrismaModule],
   controllers: [AnalysisController],

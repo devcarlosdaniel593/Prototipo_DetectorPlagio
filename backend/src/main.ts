@@ -18,6 +18,16 @@ function allowedOrigins(): string[] {
     : ['http://localhost:3000', 'http://localhost:3001'];
 }
 
+/**
+ * Punto de entrada de la API NestJS.
+ * - ValidationPipe global: aplica los DTO con class-validator, descarta los
+ *   campos no declarados y responde 400 si llegan campos extra
+ *   (forbidNonWhitelisted); `transform` convierte los tipos según el DTO.
+ * - CORS limitado a allowedOrigins().
+ * - Puerto: variable PORT (por defecto 3000).
+ * La API no implementa autenticación: los endpoints son accesibles para
+ * cualquier origen permitido por CORS.
+ */
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(

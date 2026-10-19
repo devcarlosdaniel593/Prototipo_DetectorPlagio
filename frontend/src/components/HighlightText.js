@@ -39,6 +39,11 @@ function buildHighlightRanges(text, matches) {
   return picked;
 }
 
+/**
+ * Muestra el texto del documento con los segmentos coincidentes resaltados
+ * con el color de su fuente. Solo resalta los segmentos cuyo texto aparece
+ * literalmente en `text` (búsqueda con indexOf).
+ */
 export default function HighlightText({ text, matches = [], summary = [] }) {
   const colorMap = useMemo(() => buildSourceColorMap(summary), [summary]);
 

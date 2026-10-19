@@ -7,6 +7,11 @@ import { DocumentsModule } from './documents/documents.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 
+/**
+ * Módulo raíz. Registra los módulos funcionales:
+ * Prisma (acceso a datos), Users, Documents (carga y orquestación),
+ * Analysis (similitud y estilometría) y Evaluation (métricas y reporte).
+ */
 @Module({
   imports: [
     PrismaModule,

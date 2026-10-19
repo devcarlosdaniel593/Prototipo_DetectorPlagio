@@ -8,11 +8,19 @@ export function similarityToPrototypeGrade(similarityPercent) {
   return Math.round(grade * 100) / 100;
 }
 
+/**
+ * Nota sugerida = promedio simple de la nota del prototipo y la del docente,
+ * redondeado a 2 decimales. Es una referencia; la calificación final la decide el docente.
+ */
 export function computeSuggestedGrade(prototypeGrade, teacherGrade) {
   const avg = (prototypeGrade + teacherGrade) / 2;
   return Math.round(avg * 100) / 100;
 }
 
+/**
+ * Valida la nota ingresada por el docente (número entre 0 y 10).
+ * @returns {{valid: boolean, value: number|null, error: string|null}}
+ */
 export function parseTeacherGradeInput(raw) {
   if (raw === '' || raw === null || raw === undefined) {
     return { valid: false, value: null, error: 'Ingresa una calificación entre 0 y 10.' };

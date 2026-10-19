@@ -99,6 +99,11 @@ const MAX_PROSE_SENTENCE_LENGTH = 60;
 
 type MetricKey = keyof StyleProfile;
 
+/**
+ * Peso de cada métrica en la distancia entre perfiles (suman 1,0).
+ * Cuando avgParagraphLength no está disponible se excluye y la distancia se
+ * divide entre la suma de los pesos restantes.
+ */
 const WEIGHTS: Record<MetricKey, number> = {
   avgSentenceLength: 0.2,
   avgWordLength: 0.15,
@@ -124,6 +129,21 @@ const RANGES: Record<MetricKey, number> = {
 // SERVICIO
 // ─────────────────────────────────────────────
 
+/**
+ * Estilometría: describe el estilo de redacción con 7 métricas cuantitativas
+ * y las usa para (a) detectar segmentos cuyo estilo se aparta del resto del
+ * propio documento y (b) comparar el estilo del documento con el de otros
+ * documentos internos.
+ *
+ * Es un análisis estadístico de rasgos superficiales del texto. Un puntaje
+ * alto o una anomalía son indicios para la revisión humana; no identifican
+ * con certeza al autor ni demuestran un cambio de autoría. El texto
+ * "Posible cambio de autor" que genera buildAnomalyReason debe leerse en ese
+ * sentido.
+ *
+ * Es un servicio sin estado y sin acceso a base de datos. Lo usan
+ * AnalysisService (por documento) y EvaluationService (reporte del corpus).
+ */
 @Injectable()
 export class StylometryService {
   // ── MÉTODO PRINCIPAL ──────────────────────
@@ -412,6 +432,7 @@ export class StylometryService {
 
   // ── UTILIDADES ────────────────────────────
 
+  /** Divide en oraciones por . ! ? seguidos de espacio; descarta las de ≤ 10 caracteres. */
   private splitSentences(text: string): string[] {
     return text
       .split(/(?<=[.!?])\s+/)
@@ -419,6 +440,7 @@ export class StylometryService {
       .filter((s) => s.length > 10);
   }
 
+  /** Palabras de al menos 2 caracteres; todo carácter que no sea letra ASCII, dígito, _, vocal con tilde, ü, ñ o espacio se reemplaza por espacio. */
   private getWords(text: string): string[] {
     return text
       .replace(/[^\wáéíóúüñÁÉÍÓÚÜÑ\s]/gi, ' ')
@@ -454,6 +476,11 @@ export class StylometryService {
     return paragraphs.length >= 2 ? paragraphs.length : 0;
   }
 
+  /**
+   * Clasifica la similitud estilométrica: ≥ 70 'alta', ≥ 45 'media', resto
+   * 'baja'. Es una etiqueta sobre la cercanía de estilo, no una probabilidad
+   * calculada de que ambos textos tengan el mismo autor.
+   */
   private getLikelihood(score: number): 'alta' | 'media' | 'baja' {
     if (score >= 70) return 'alta';
     if (score >= 45) return 'media';

@@ -6,6 +6,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AnalysisModule } from '../analysis/analysis.module';
 import { EvaluationModule } from '../evaluation/evaluation.module';
 
+/**
+ * Módulo de documentos: recepción de PDF, extracción de texto, registro en la
+ * base de datos y orquestación del análisis. Usa AnalysisModule para el
+ * análisis y EvaluationModule para guardar las métricas.
+ */
 @Module({
   imports: [PrismaModule, AnalysisModule, EvaluationModule],
   controllers: [DocumentsController],

@@ -24,6 +24,12 @@ MAX_SEQ_LENGTH = 128  # longitud máxima configurada en el modelo original
 
 
 class TorchEncoder:
+    """Codificador basado en sentence-transformers (PyTorch).
+
+    Carga el modelo indicado por nombre (se descarga de Hugging Face la
+    primera vez) y genera embeddings con la configuración propia del modelo.
+    """
+
     name = "torch"
 
     def __init__(self, model_name):
@@ -32,12 +38,21 @@ class TorchEncoder:
         self.model = SentenceTransformer(model_name)
 
     def encode(self, sentences):
+        """Devuelve una matriz float32 (n_oraciones x dimensión del modelo)."""
         return self.model.encode(
             sentences, convert_to_numpy=True, show_progress_bar=False
         ).astype(np.float32)
 
 
 class OnnxEncoder:
+    """Codificador basado en onnxruntime, sin PyTorch.
+
+    Descarga del repositorio HF_REPO el archivo ONNX indicado y el
+    tokenizador, trunca cada oración a MAX_SEQ_LENGTH tokens y aplica mean
+    pooling sobre la salida del modelo. Variables de entorno opcionales:
+    ONNX_THREADS, ONNX_MEM_ARENA y ONNX_OPT_LEVEL.
+    """
+
     name = "onnx"
 
     def __init__(self, onnx_file):
@@ -76,6 +91,12 @@ class OnnxEncoder:
         self.input_names = {i.name for i in self.session.get_inputs()}
 
     def encode(self, sentences, batch_size=32):
+        """Codifica las oraciones en lotes de batch_size.
+
+        Returns:
+            Matriz float32 (n_oraciones x 384). Si no hay oraciones, una
+            matriz vacía de forma (0, 384).
+        """
         chunks = []
         for start in range(0, len(sentences), batch_size):
             batch = sentences[start : start + batch_size]

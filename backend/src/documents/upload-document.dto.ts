@@ -10,6 +10,10 @@ import {
 } from 'class-validator';
 import { parsePersistToRepository } from './persist-options.util';
 
+/**
+ * Campos de texto de POST /documents/upload. Como llegan en multipart/form-data
+ * (siempre como texto), userId y persistToRepository se convierten antes de validar.
+ */
 export class UploadDocumentDto {
   @Transform(({ value }) => Number(value))
   @IsInt()

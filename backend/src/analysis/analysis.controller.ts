@@ -2,6 +2,11 @@ import { Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/commo
 import { AnalysisService } from './analysis.service';
 import { WebSourceService } from './web-source.service';
 
+/**
+ * Endpoints del módulo de análisis.
+ *  POST /analysis/document/:id  analiza un documento ya guardado (no guarda métricas).
+ *  GET  /analysis/web-sources   diagnóstico de los proveedores de fuentes externas.
+ */
 @Controller('analysis')
 export class AnalysisController {
   constructor(
@@ -9,6 +14,10 @@ export class AnalysisController {
     private readonly webSourceService: WebSourceService,
   ) {}
 
+  /**
+   * Ejecuta AnalysisService.analyzeDocument sobre un documento existente.
+   * ParseIntPipe responde 400 si el id no es numérico.
+   */
   @Post('document/:id')
   analyzeByDocumentId(@Param('id', ParseIntPipe) id: number) {
     return this.analysisService.analyzeDocument(id);
