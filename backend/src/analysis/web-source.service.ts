@@ -10,6 +10,8 @@ export type WebSearchOptions = {
   title?: string;
 };
 
+// SEARCH_MAX_COMBINED_RESULTS: máximo de fuentes web por análisis (10–60, por defecto 36).
+// SEARCH_PER_PROVIDER_LIMIT: resultados pedidos a cada proveedor por consulta (2–8, por defecto 4).
 const maxCombinedResults = (() => {
   const n = Number(process.env.SEARCH_MAX_COMBINED_RESULTS ?? '36');
   return Number.isFinite(n) && n >= 10 ? Math.min(Math.floor(n), 60) : 36;
@@ -20,6 +22,11 @@ const perProviderLimit = (() => {
   return Number.isFinite(n) && n >= 2 ? Math.min(Math.floor(n), 8) : 4;
 })();
 
+/**
+ * Obtiene fuentes externas (resúmenes de artículos académicos) para comparar
+ * con el documento. Usa SearchQueryPlannerService para generar las consultas
+ * y los proveedores de web-providers.registry.ts para ejecutarlas.
+ */
 @Injectable()
 export class WebSourceService {
   private readonly logger = new Logger(WebSourceService.name);
@@ -29,6 +36,16 @@ export class WebSourceService {
 
   /**
    * Búsqueda externa ampliada: múltiples consultas × múltiples proveedores.
+   *
+   * Las consultas se ejecutan una tras otra; dentro de cada consulta, todos
+   * los proveedores se llaman en paralelo (Promise.allSettled), de modo que
+   * el fallo de uno no afecta a los demás. Si una consulta no devuelve nada,
+   * se reintenta con sus 3 primeras palabras. Al final se deduplica por URL
+   * (o por contenido) y se limita a SEARCH_MAX_COMBINED_RESULTS.
+   *
+   * @param targetText Texto completo del documento.
+   * @param options.title Título del documento (se usa como consulta adicional).
+   * @returns Fuentes externas con id negativo y sourceType 'web'.
    */
   async searchRelevantSources(
     targetText: string,

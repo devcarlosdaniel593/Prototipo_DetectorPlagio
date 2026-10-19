@@ -2,6 +2,11 @@ import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { cleanText } from '../text.utils';
 import type { ExternalSourceDocument } from './web-provider.types';
 
+/**
+ * Hash entero de 32 bits (estilo Java String.hashCode). Se usa para derivar
+ * ids numéricos de las fuentes web; no es un hash criptográfico y dos
+ * cadenas distintas pueden producir el mismo valor.
+ */
 export function hashString(value: string): number {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -11,10 +16,12 @@ export function hashString(value: string): number {
   return hash;
 }
 
+/** Correo de contacto (CONTACT_EMAIL) que algunas APIs académicas solicitan para identificar al cliente. */
 export function contactEmail(): string {
   return process.env.CONTACT_EMAIL || 'prototipo-tesis@localhost';
 }
 
+/** Cabeceras HTTP comunes: User-Agent con el correo de contacto y Accept JSON. */
 export function defaultHeaders(): Record<string, string> {
   return {
     'User-Agent': `PrototipoTesis/1.0 (mailto:${contactEmail()})`,
@@ -22,6 +29,7 @@ export function defaultHeaders(): Record<string, string> {
   };
 }
 
+/** Deduplica por URL; si no hay URL, por los primeros 180 caracteres del contenido normalizado. */
 export function deduplicateByUrlOrContent(
   docs: ExternalSourceDocument[],
 ): ExternalSourceDocument[] {
@@ -35,6 +43,10 @@ export function deduplicateByUrlOrContent(
   return Array.from(unique.values());
 }
 
+/**
+ * OpenAlex entrega el resumen como índice invertido ({ palabra: [posiciones] }).
+ * Esta función lo reconstruye ordenando las palabras por posición.
+ */
 export function rebuildOpenAlexAbstract(
   invertedIndex?: Record<string, number[]>,
 ): string {

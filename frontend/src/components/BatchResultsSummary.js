@@ -2,12 +2,14 @@ import React from 'react';
 import { getSimilarityFromBatchEntry } from '../utils/batchAnalysis';
 import { formatPercent } from '../utils/format';
 
+/** Clase CSS según el nivel de similitud: ≥ 80 alto, ≥ 50 medio, resto bajo. */
 function levelClass(value) {
   if (value >= 80) return 'batch-sim batch-sim--high';
   if (value >= 50) return 'batch-sim batch-sim--mid';
   return 'batch-sim batch-sim--low';
 }
 
+/** Tabla resumen de un envío por lote; al elegir una fila se muestra su informe completo. */
 export default function BatchResultsSummary({
   items,
   activeIndex,

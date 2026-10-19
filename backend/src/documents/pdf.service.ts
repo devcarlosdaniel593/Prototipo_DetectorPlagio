@@ -26,6 +26,18 @@ function safeDecodePdfToken(raw: string): string {
   }
 }
 
+/**
+ * Extrae el texto de un PDF con pdf2json.
+ *
+ * Recorre las páginas y sus fragmentos de texto (Texts[].R[0].T), decodifica
+ * cada fragmento y los concatena separados por un espacio. No conserva saltos
+ * de línea ni párrafos, ni extrae texto de imágenes (no hay OCR): un PDF
+ * escaneado produce texto vacío.
+ *
+ * @param filePath Ruta del archivo temporal.
+ * @returns Texto plano del documento.
+ * @throws Error con el mensaje de pdf2json si el archivo no se puede leer.
+ */
 export function extractTextFromPDF(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const pdfParser = new PDFParser();

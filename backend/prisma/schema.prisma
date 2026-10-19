@@ -13,6 +13,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Usuario propietario de los documentos. Las contraseñas creadas por la API
+/// se guardan como hash scrypt (formato scrypt$<sal>$<hash>, ver src/users/password.util.ts).
 model User {
   id        Int      @id @default(autoincrement())
   name      String
@@ -23,6 +25,9 @@ model User {
   documents Document[]
 }
 
+/// Documento subido. `content` guarda el texto extraído del PDF (el archivo
+/// no se conserva) y es lo que se compara en cada análisis.
+/// En los documentos nuevos `filePath` guarda el nombre original del archivo, no una ruta del servidor.
 model Document {
   id        Int      @id @default(autoincrement())
   title     String

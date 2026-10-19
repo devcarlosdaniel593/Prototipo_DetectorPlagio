@@ -7,6 +7,11 @@ import { cleanText, splitIntoParagraphs } from './text.utils';
 import { WebSourceService } from './web-source.service';
 import { StylometryService, StylometryResult } from './stylometry.service';
 
+/**
+ * Fuente con evidencia en el documento analizado (una fila del ranking).
+ * `similarity` es el puntaje por fuente (0–100) calculado en buildSourceRanking.
+ * En fuentes web `documentId` es un número negativo derivado de un hash.
+ */
 export type AnalysisSource = {
   documentId: number;
   title: string;
@@ -15,6 +20,10 @@ export type AnalysisSource = {
   url?: string;
 };
 
+/**
+ * Coincidencia entre un segmento del documento (`text1`) y el fragmento más
+ * parecido de la fuente (`text2`). `similarity` es la similitud combinada.
+ */
 export type AnalysisMatch = {
   documentId: number;
   title: string;
@@ -26,6 +35,12 @@ export type AnalysisMatch = {
   url?: string;
 };
 
+/**
+ * Respuesta completa del análisis que reciben el frontend y
+ * DocumentAnalysisService. `overallSimilarity` es el promedio de los puntajes
+ * de `summary`; `semanticServiceStatus` es 'degraded' si alguna llamada al
+ * microservicio semántico falló tras agotar los reintentos.
+ */
 export type AnalysisResponse = {
   message: string;
   document: {
@@ -43,6 +58,7 @@ export type AnalysisResponse = {
   stylometry: StylometryResult;
 };
 
+/** Fuente normalizada (interna o web) contra la que se compara cada segmento. */
 type SourceDocument = {
   id: number;
   title: string;
@@ -51,6 +67,7 @@ type SourceDocument = {
   url?: string;
 };
 
+/** Mejor coincidencia encontrada para un segmento, con sus tres similitudes. */
 type SourceEvidence = {
   sourceId: number;
   sourceTitle: string;
@@ -64,6 +81,18 @@ type SourceEvidence = {
   sourceUrl?: string;
 };
 
+// ── Configuración por variables de entorno ───────────────────────────────────
+// Cada valor se valida y, si es inválido, se usa el valor por defecto.
+// Los máximos acotan el costo del análisis.
+//   SEMANTIC_IA_URL             URL del endpoint /compare del microservicio Flask
+//   SEMANTIC_IA_TIMEOUT_MS      tiempo máximo por llamada (por defecto 120 000)
+//   SEMANTIC_TOP_K_PER_SEGMENT  candidatos léxicos por segmento que pasan al
+//                               análisis semántico (por defecto 4, máx. 12)
+//   SEMANTIC_IA_MAX_ATTEMPTS    intentos por llamada (por defecto 2, máx. 5)
+//   SEMANTIC_IA_RETRY_DELAY_MS  espera entre intentos (por defecto 400 ms)
+//   ANALYSIS_MAX_SEGMENTS       segmentos analizados por documento (por defecto 2000)
+//   SEMANTIC_CACHE_MAX_ENTRIES  tamaño de la caché semántica (por defecto 5000)
+//   ANALYSIS_MAX_MATCHES_OUT    coincidencias devueltas (por defecto 800)
 const semanticIaUrl =
   process.env.SEMANTIC_IA_URL ?? 'http://127.0.0.1:5000/compare';
 const semanticIaTimeoutMs = Number(
@@ -119,6 +148,19 @@ const THRESHOLDS = {
   web: { lexical: 8, combined: 12 },
 };
 
+/**
+ * Servicio central del análisis de similitud de un documento.
+ *
+ * Combina dos medidas por segmento:
+ *  - léxica: TF-IDF + coseno (similarity.service.ts), calculada localmente;
+ *  - semántica: embeddings de oraciones, calculada por el microservicio Flask
+ *    (ia_service/ia_service.py) mediante HTTP POST a SEMANTIC_IA_URL.
+ * Además ejecuta la estilometría (StylometryService) y obtiene fuentes web
+ * académicas (WebSourceService).
+ *
+ * Los resultados son indicadores de similitud textual para apoyar la revisión
+ * del docente; no constituyen por sí solos una determinación de plagio.
+ */
 @Injectable()
 export class AnalysisService {
   private readonly logger = new Logger(AnalysisService.name);
@@ -138,6 +180,28 @@ export class AnalysisService {
    */
   private readonly semanticCache = new Map<string, number>();
 
+  /**
+   * Analiza un documento ya guardado en la base de datos.
+   *
+   * Flujo:
+   *  1. Lee el documento; las fuentes internas son todos los demás documentos
+   *     de la tabla Document.
+   *  2. Busca fuentes web a partir del texto y el título.
+   *  3. Une ambas listas y elimina duplicados (deduplicateSources).
+   *  4. Ejecuta la estilometría contra las fuentes internas únicamente.
+   *  5. Segmenta el texto, recoge la mejor evidencia por segmento
+   *     (collectEvidenceBySegment) y construye el ranking de fuentes y la
+   *     lista de coincidencias.
+   *  6. overallSimilarity = promedio simple de los puntajes por fuente.
+   *
+   * Solo lee de la base de datos; la persistencia de métricas la hace
+   * DocumentAnalysisService. Produce llamadas HTTP a proveedores externos y
+   * al microservicio semántico.
+   *
+   * @param documentId Id del documento en la tabla Document.
+   * @returns Resultado del análisis (AnalysisResponse).
+   * @throws NotFoundException si el documento no existe o no tiene texto.
+   */
   async analyzeDocument(documentId: number): Promise<AnalysisResponse> {
     const startedAt = Date.now();
     const semanticState = { degraded: false };
@@ -267,6 +331,11 @@ export class AnalysisService {
     };
   }
 
+  /**
+   * Segmenta el texto con splitIntoParagraphs y limita el resultado a
+   * ANALYSIS_MAX_SEGMENTS. Si splitIntoParagraphs no devuelve segmentos, usa
+   * las oraciones de al menos 25 caracteres.
+   */
   private buildSegments(targetText: string): string[] {
     const byParagraph = splitIntoParagraphs(targetText);
     const maxSegments = analysisMaxSegments;
@@ -293,6 +362,26 @@ export class AnalysisService {
     return fallback.slice(0, maxSegments);
   }
 
+  /**
+   * Recorre los segmentos y obtiene, para cada uno, la fuente más parecida.
+   *
+   * Por segmento:
+   *  1. Calcula la similitud léxica contra cada fuente (en fuentes web, contra
+   *     el mejor bloque de 3 oraciones) y descarta las que no alcanzan el
+   *     umbral léxico de su tipo (THRESHOLDS).
+   *  2. Ordena las restantes y envía solo las SEMANTIC_TOP_K_PER_SEGMENT
+   *     mejores al microservicio semántico (las llamadas son secuenciales).
+   *  3. combinada = 0,55 · léxica + 0,45 · semántica; descarta las que no
+   *     alcanzan el umbral combinado de su tipo.
+   *  4. Conserva solo la fuente con mayor similitud combinada.
+   *
+   * Como el análisis semántico solo se aplica a candidatos que superaron el
+   * filtro léxico, una paráfrasis con poco vocabulario en común con la fuente
+   * no llega a evaluarse semánticamente.
+   *
+   * @param semanticState Se marca degraded = true si alguna llamada semántica falla.
+   * @returns Como máximo una evidencia por segmento.
+   */
   private async collectEvidenceBySegment(
     segments: string[],
     sourceDocuments: SourceDocument[],
@@ -413,6 +502,14 @@ export class AnalysisService {
     return best;
   }
 
+  /**
+   * Agrupa la evidencia por fuente y calcula su puntaje (0–100):
+   *   cobertura   = segmentos con evidencia de la fuente / total de segmentos × 100
+   *   media       = promedio de la similitud combinada de esos segmentos
+   *   densidad    = min(segmentos con evidencia / 12 × 100, 100)
+   *   puntaje     = 0,5 · cobertura + 0,35 · media + 0,15 · densidad
+   * Devuelve las fuentes ordenadas de mayor a menor puntaje.
+   */
   private buildSourceRanking(
     segments: string[],
     evidence: SourceEvidence[],
@@ -451,6 +548,11 @@ export class AnalysisService {
     return ranking;
   }
 
+  /**
+   * Convierte la evidencia en coincidencias para la interfaz, ordenadas por
+   * similitud combinada y limitadas a ANALYSIS_MAX_MATCHES_OUT.
+   * Nota: Array.prototype.sort ordena `evidence` en el mismo arreglo.
+   */
   private buildMatchesFromEvidence(
     evidence: SourceEvidence[],
   ): AnalysisMatch[] {
@@ -469,6 +571,13 @@ export class AnalysisService {
       }));
   }
 
+  /**
+   * Elige la oración de la fuente que mejor representa la coincidencia, para
+   * mostrarla junto al segmento. Revisa hasta 40 oraciones de más de 20
+   * caracteres y puntúa cada una con su similitud léxica más 2 puntos por cada
+   * una de las primeras 6 palabras normalizadas del segmento (de al menos 4
+   * letras) que contenga. Devuelve como máximo 240 caracteres.
+   */
   private extractBestSnippet(sourceText: string, segment: string): string {
     const normalizedSegment = cleanText(segment);
     const segmentTokens = normalizedSegment
@@ -507,6 +616,16 @@ export class AnalysisService {
     return bestSentence.slice(0, 240);
   }
 
+  /**
+   * Obtiene la similitud semántica (0–100) entre un segmento y una fuente.
+   *
+   * Consulta primero la caché; si no hay valor, llama a POST SEMANTIC_IA_URL
+   * con { texto_nuevo, textos_base: [fuente] } y usa `similitud_ia` de la
+   * respuesta. Reintenta hasta SEMANTIC_IA_MAX_ATTEMPTS veces con una espera
+   * fija entre intentos. Si todos fallan, devuelve 0 y marca el análisis como
+   * degradado; en ese caso la similitud combinada queda solo con el aporte
+   * léxico (0,55 · léxica).
+   */
   private async getSemanticSimilarity(
     text1: string,
     text2: string,
@@ -560,10 +679,15 @@ export class AnalysisService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /** SHA-256 del texto normalizado con cleanText (clave de la caché semántica). */
   private hashForCache(text: string): string {
     return createHash('sha256').update(cleanText(text), 'utf8').digest('hex');
   }
 
+  /**
+   * La caché usa el orden de inserción de Map como orden de uso (LRU):
+   * leer una entrada la mueve al final y escribir descarta las del inicio.
+   */
   private readSemanticCache(key: string): number | undefined {
     const value = this.semanticCache.get(key);
     if (value === undefined) return undefined;
@@ -582,6 +706,12 @@ export class AnalysisService {
     }
   }
 
+  /**
+   * Elimina fuentes sin contenido y las repetidas. Dos fuentes se consideran
+   * iguales si coinciden los primeros 40 caracteres del título y los primeros
+   * 220 del contenido, ambos normalizados. Se conserva la primera aparición
+   * (las internas van antes que las web en la lista de entrada).
+   */
   private deduplicateSources(sources: SourceDocument[]): SourceDocument[] {
     const unique = new Map<string, SourceDocument>();
     for (const source of sources) {

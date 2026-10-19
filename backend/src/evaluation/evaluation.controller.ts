@@ -11,6 +11,10 @@ import { EvaluationService } from './evaluation.service';
 import { DocumentAnalysisService } from './document-analysis.service';
 import { SetReferenceLabelDto } from './set-reference-label.dto';
 
+/**
+ * Endpoints del reporte de evaluación y del etiquetado de referencia.
+ * Ambos trabajan sobre las métricas ya guardadas; no ejecutan análisis.
+ */
 @Controller('evaluation')
 export class EvaluationController {
   private readonly logger = new Logger(EvaluationController.name);

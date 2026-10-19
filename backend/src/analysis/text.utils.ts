@@ -1,6 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Stopwords en español (lista ampliada)
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Palabras vacías (español e inglés) que cleanText descarta antes de comparar.
+ * Se eliminan porque aparecen en casi cualquier texto y no aportan
+ * información sobre el contenido; así el TF-IDF se concentra en términos
+ * con carga temática.
+ */
 const STOPWORDS = new Set([
   'el',
   'la',
@@ -100,6 +106,17 @@ const STOPWORDS = new Set([
 // ─────────────────────────────────────────────────────────────────────────────
 // cleanText — normaliza para comparación TF-IDF
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Normaliza un texto para la comparación léxica (TF-IDF) y para claves de
+ * caché o deduplicación.
+ *
+ * Pasos: minúsculas → descomposición Unicode (NFD) y eliminación de tildes →
+ * signos de puntuación reemplazados por espacios → descarte de palabras de
+ * una sola letra y de STOPWORDS.
+ *
+ * @param text Texto original.
+ * @returns Palabras normalizadas separadas por un espacio ('' si no queda ninguna).
+ */
 export function cleanText(text: string): string {
   return text
     .toLowerCase()
@@ -121,6 +138,25 @@ export function cleanText(text: string): string {
 //   3. Puntos finales de oración        → fallback para texto continuo sin \n
 //   4. Ventanas deslizantes de N tokens → último recurso para bloques enormes
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Divide el texto de un documento en segmentos para el análisis de similitud.
+ *
+ * Aplica el primer nivel de la cascada que produzca suficientes segmentos:
+ *  1. Líneas en blanco: si quedan al menos 3 párrafos de ≥ 40 caracteres.
+ *  2. Saltos de línea simples: si quedan al menos 3 líneas de ≥ 40 caracteres.
+ *  3. Oraciones agrupadas de 3 en 3: si se obtienen al menos 2 grupos.
+ *  4. Ventanas de 80 palabras con avance de 48 (40 % de solapamiento).
+ * En los niveles 1 y 2 los segmentos de más de 1200 caracteres se vuelven a
+ * partir en grupos de 2 oraciones (splitLongSegments).
+ *
+ * El texto que entrega pdf.service une los fragmentos con espacios y no
+ * conserva saltos de línea, por lo que en documentos subidos como PDF lo
+ * habitual es que se apliquen los niveles 3 o 4.
+ *
+ * @param text Texto completo del documento.
+ * @returns Segmentos en orden de aparición ([] si el texto está vacío; el
+ *          texto completo como único segmento si tiene menos de 10 palabras).
+ */
 export function splitIntoParagraphs(text: string): string[] {
   const MIN_LEN = 40; // mínimo de caracteres para considerar un segmento
   const MAX_LEN = 1200; // máximo antes de partir un párrafo largo
@@ -182,6 +218,12 @@ export function splitIntoParagraphs(text: string): string[] {
 // ─────────────────────────────────────────────────────────────────────────────
 // Parte segmentos que superen MAX_LEN en trozos más pequeños por oración
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Los segmentos de hasta maxLen caracteres se conservan; los más largos se
+ * dividen en oraciones (descartando las de menos de minLen caracteres) y se
+ * reagrupan de 2 en 2. Si el resultado queda vacío, devuelve la entrada sin
+ * cambios.
+ */
 function splitLongSegments(
   segments: string[],
   maxLen: number,

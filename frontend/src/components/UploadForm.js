@@ -4,10 +4,18 @@ import { uploadDocument, uploadDocumentBatch } from '../services/api';
 const MAX_FILES = 10;
 const MAX_SIZE_MB = 10;
 
+/** Título sugerido a partir del nombre del archivo (sin .pdf y con guiones convertidos en espacios). */
 function titleFromFileName(name) {
   return name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim() || name;
 }
 
+/**
+ * Formulario de carga de PDF (selección o arrastre, hasta 10 archivos de 10 MB).
+ * Con un archivo llama a POST /documents/upload; con varios, a
+ * POST /documents/upload-batch. La casilla "guardar en repositorio" envía
+ * persistToRepository. El usuario se envía siempre como userId = 1 (no hay
+ * inicio de sesión).
+ */
 export default function UploadForm({
   setResult,
   setBatchResults,

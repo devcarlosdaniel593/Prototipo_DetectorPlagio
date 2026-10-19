@@ -1,3 +1,4 @@
+/** Colores semitransparentes para resaltar coincidencias por fuente. */
 export const SOURCE_PALETTE = [
   'rgba(235, 87, 87, 0.38)',
   'rgba(47, 128, 237, 0.34)',
@@ -9,6 +10,7 @@ export const SOURCE_PALETTE = [
   'rgba(199, 140, 208, 0.38)',
 ];
 
+/** Asigna un color a cada fuente del ranking según su posición (se repiten tras 8 fuentes). */
 export function buildSourceColorMap(summary) {
   const map = new Map();
   (summary || []).forEach((entry, index) => {
@@ -17,6 +19,7 @@ export function buildSourceColorMap(summary) {
   return map;
 }
 
+/** Color de una fuente: el del mapa o, si no está, uno derivado de su id. */
 export function colorForSourceId(documentId, colorMap) {
   if (colorMap.has(documentId)) return colorMap.get(documentId);
   return SOURCE_PALETTE[Math.abs(Number(documentId)) % SOURCE_PALETTE.length];

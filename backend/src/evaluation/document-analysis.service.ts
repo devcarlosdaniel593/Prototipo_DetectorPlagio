@@ -2,11 +2,19 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AnalysisResponse } from '../analysis/analysis.service';
 
+/**
+ * Umbral (en %) a partir del cual un documento se clasifica como 'similar'.
+ * Debe coincidir con EvaluationService.SIMILARITY_THRESHOLD, que lo muestra en el reporte.
+ */
 const SIMILARITY_THRESHOLD = 40;
 
 /** Valores válidos para la etiqueta de referencia de un documento. */
 export type ReferenceLabel = 'similar' | 'original';
 
+/**
+ * Lectura y escritura de la tabla DocumentAnalysis (una fila por documento
+ * analizado en modo repositorio).
+ */
 @Injectable()
 export class DocumentAnalysisService {
   private readonly logger = new Logger(DocumentAnalysisService.name);
@@ -33,6 +41,10 @@ export class DocumentAnalysisService {
     if (overallSimilarity >= 80) riskLevel = 'alto';
     else if (overallSimilarity >= 50) riskLevel = 'medio';
 
+    // Reglas de clasificación aplicadas sobre overallSimilarity:
+    //   detectedAsSimilar = similitud ≥ 40 % y al menos una fuente con evidencia
+    //   riskLevel         = 'alto' (≥ 80), 'medio' (≥ 50) o 'bajo'
+    // Son umbrales fijos del prototipo para orientar la revisión del docente.
     const metrics = {
       overallSimilarity,
       consistencyScore: result.stylometry.consistencyScore,
@@ -45,6 +57,8 @@ export class DocumentAnalysisService {
       systemClassification: detectedAsSimilar ? 'similar' : 'no_similar',
     };
 
+    // upsert: crea la fila la primera vez y la actualiza en los reanálisis
+    // (documentId es único en DocumentAnalysis).
     await this.prisma.documentAnalysis.upsert({
       where: { documentId },
       create: { documentId, ...metrics },
@@ -83,6 +97,10 @@ export class DocumentAnalysisService {
     return updated;
   }
 
+  /**
+   * Todas las métricas guardadas con el id, título y contenido de su
+   * documento, de la más reciente a la más antigua. Lo usa EvaluationService.
+   */
   async findAllWithDocuments() {
     return this.prisma.documentAnalysis.findMany({
       include: {

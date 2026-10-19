@@ -59,6 +59,17 @@ def _ensure_nltk_punkt():
 
 
 def split_sentences(text):
+    """Divide un texto en oraciones con el tokenizador Punkt de NLTK.
+
+    Usa el modelo de español; si ese recurso no está instalado (LookupError),
+    recurre al tokenizador por defecto de NLTK (inglés).
+
+    Args:
+        text: texto a segmentar.
+
+    Returns:
+        Lista de oraciones (str) en el orden original.
+    """
     try:
         return nltk.sent_tokenize(text, language=SENT_LANGUAGE)
     except LookupError:
@@ -85,11 +96,29 @@ _cache_lock = threading.Lock()
 
 
 def _cache_key_textos_base(textos_base):
+    """Genera la clave de caché de un conjunto de textos base.
+
+    Concatena los textos válidos (str no vacíos) con un separador nulo y
+    calcula su SHA-256, de modo que el mismo conjunto de textos, en el mismo
+    orden, siempre produce la misma clave.
+    """
     raw = "\0".join(d for d in textos_base if d and isinstance(d, str))
     return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _frases_base_desde_docs(textos_base):
+    """Convierte los textos base en una lista plana de oraciones.
+
+    Si el total supera MAX_FRASES_BASE, conserva MAX_FRASES_BASE oraciones
+    elegidas a intervalos regulares a lo largo del texto (muestreo uniforme),
+    en lugar de truncar solo el inicio.
+
+    Args:
+        textos_base: lista de textos; se ignoran los elementos vacíos o no str.
+
+    Returns:
+        Lista de oraciones (puede quedar vacía).
+    """
     frases = []
     for doc in textos_base:
         if doc and isinstance(doc, str):
@@ -111,6 +140,16 @@ def _frases_base_desde_docs(textos_base):
 
 
 def _get_frases_y_embedding_base(textos_base):
+    """Devuelve las oraciones base y su matriz de embeddings, con caché LRU.
+
+    La caché (_base_emb_cache) guarda hasta BASE_CACHE_MAX_ITEMS conjuntos de
+    textos base; al superarse se descarta el usado hace más tiempo. El acceso
+    a la caché se protege con _cache_lock porque gunicorn atiende peticiones
+    en varios hilos. La codificación se hace fuera del candado.
+
+    Returns:
+        Tupla (frases, embeddings). Si no hay oraciones devuelve (None, None).
+    """
     key = _cache_key_textos_base(textos_base)
     with _cache_lock:
         if key in _base_emb_cache:
@@ -132,11 +171,33 @@ def _get_frases_y_embedding_base(textos_base):
 
 @app.route("/health", methods=["GET"])
 def health():
+    """GET /health: indica que el servicio está activo y qué backend usa (torch | onnx)."""
     return jsonify({"status": "ok", "backend": encoder.name})
 
 
 @app.route("/compare", methods=["POST"])
 def compare():
+    """POST /compare: similitud semántica entre un texto nuevo y textos base.
+
+    Procedimiento:
+        1. Divide texto_nuevo en oraciones (si no se puede, usa el texto completo).
+        2. Obtiene las oraciones de textos_base y sus embeddings (con caché).
+        3. Calcula la matriz de similitud coseno oración nueva × oración base.
+        4. Para cada oración nueva toma la oración base más parecida (máximo
+           de su fila) y lo expresa en porcentaje.
+        5. similitud_ia = promedio simple de esos máximos.
+
+    Respuestas:
+        200 {"similitud_ia": float, "analisis_detallado": [{"texto", "similitud",
+            "referencia"}]}. "referencia" solo se rellena cuando la similitud
+            de la oración supera 30; en otro caso es "".
+        200 con similitud 0 si texto_nuevo está vacío o no hay texto base.
+        400 si textos_base no es una lista.
+        500 ante cualquier excepción no controlada (se registra en el log).
+
+    La similitud mide cercanía de significado entre oraciones según el modelo
+    de embeddings; no determina por sí sola plagio ni autoría.
+    """
     try:
         data = request.get_json(silent=True) or {}
         texto_nuevo = data.get("texto_nuevo", "")

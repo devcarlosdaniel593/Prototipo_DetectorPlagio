@@ -45,6 +45,7 @@ PARES = [
 
 
 def memoria_mb():
+    """Memoria residente (RSS) del proceso en MB, o None si psutil no está instalado."""
     try:
         import psutil
 
@@ -83,6 +84,11 @@ def memoria_todas():
 
 
 def comparar():
+    """Compara la similitud coseno de cada par de PARES con ambos backends.
+
+    Imprime la similitud de torch, la de ONNX y su diferencia por par, más la
+    diferencia media y máxima en puntos porcentuales.
+    """
     torch_enc = TorchEncoder("paraphrase-multilingual-MiniLM-L12-v2")
     onnx_enc = OnnxEncoder(ONNX_FILE)
 

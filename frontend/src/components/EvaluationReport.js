@@ -22,6 +22,7 @@ function getRiskMeta(level) {
 }
 
 /** Gráfico de barras: Precisión, Recall y F1 (solo con documentos etiquetados) */
+/** Gráfico de barras SVG de precisión, recall y F1 (mensaje alternativo si no hay datos). */
 function MetricsComparisonChart({ precision, recall, f1Score }) {
   if (precision === null && recall === null && f1Score === null) {
     return (
@@ -120,6 +121,7 @@ function MetricsComparisonChart({ precision, recall, f1Score }) {
 }
 
 /** Gráfico de barras horizontales: similitud por documento real */
+/** Barras horizontales con la similitud de cada documento y el umbral de clasificación. */
 function DocumentResultsChart({ documents, threshold }) {
   if (!documents?.length) {
     return (
@@ -230,6 +232,11 @@ function formatDateTime(iso) {
   return new Date(iso).toLocaleString('es-EC');
 }
 
+/**
+ * Dashboard de evaluación. Carga GET /evaluation/report al montarse y cada vez
+ * que cambia refreshKey, muestra los indicadores y permite asignar la
+ * etiqueta de referencia de cada documento (PATCH /evaluation/documents/:id/label).
+ */
 export default function EvaluationReport({ refreshKey = 0 }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);

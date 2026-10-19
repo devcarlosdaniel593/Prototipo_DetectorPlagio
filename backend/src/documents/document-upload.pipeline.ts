@@ -27,6 +27,16 @@ export class DocumentUploadPipeline {
     private readonly documentAnalysisService: DocumentAnalysisService,
   ) {}
 
+  /**
+   * Flujo de un único PDF: guarda el documento, lo analiza y, según el modo,
+   * guarda las métricas (repositorio) o elimina el documento (sesión).
+   * El tiempo de procesamiento guardado mide solo el análisis, no la extracción del PDF.
+   *
+   * @param persistToRepository true = modo repositorio; false = modo sesión.
+   * @returns El resultado del análisis.
+   * @throws Propaga los errores de guardado o análisis; en modo sesión elimina
+   *         antes el documento temporal.
+   */
   async uploadAnalyzeAndMaybePersist(
     file: Express.Multer.File,
     userId: number,
@@ -76,6 +86,11 @@ export class DocumentUploadPipeline {
    * 1) Guardar todos (así los documentos del mismo envío se comparan entre sí)
    * 2) Analizar todos
    * 3) Persistir métricas o descartar los documentos temporales
+   *
+   * Los errores se registran por archivo (status 'error') sin interrumpir el
+   * resto del lote. Los análisis de la fase 2 se ejecutan en paralelo
+   * (Promise.all, sin límite de concurrencia). En la respuesta se omite el
+   * registro `document` de cada entrada.
    */
   async uploadBatchAnalyzeAndMaybePersist(
     files: Express.Multer.File[],

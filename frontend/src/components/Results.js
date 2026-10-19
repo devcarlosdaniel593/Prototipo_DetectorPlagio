@@ -4,6 +4,12 @@ import GradeSuggestion from './GradeSuggestion';
 import { buildSourceColorMap } from '../utils/sourcePalette';
 import { formatPercent } from '../utils/format';
 
+/**
+ * Informe de un documento analizado (AnalysisResponse) en cuatro pestañas:
+ * originalidad, coincidencias, estilometría y detalles. Avisa cuando el
+ * servicio semántico estuvo degradado, resalta el texto con HighlightText e
+ * incluye la calificación sugerida (GradeSuggestion).
+ */
 export default function Results({ result }) {
   const [activeTab, setActiveTab] = useState('originality');
 

@@ -33,6 +33,7 @@ export async function verifyPassword(
   return timingSafeEqual(derived, expected);
 }
 
+/** true si el valor guardado ya tiene el formato scrypt$… (no es texto plano). */
 export function isHashedPassword(value: string): boolean {
   return value.startsWith(`${PREFIX}$`);
 }
